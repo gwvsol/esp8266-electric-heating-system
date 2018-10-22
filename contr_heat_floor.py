@@ -3,7 +3,7 @@ from machine import I2C, Pin
 from i2c_lcd_api import I2cLcd
 from i2c_ds3231 import DS3231
 import uasyncio as asyncio
-import time, network, gc
+import time, network, gc, onewire, ds18x20
 
 i2c = I2C(scl=Pin(5), sda=Pin(4), freq=400000) # Настройка шины i2c
 
@@ -30,12 +30,14 @@ class ControlHeated(object):
         self.config['TIME'] = '00:00:00'      #Начальное значение времени
         self.config['SOURCE_TIME'] = 'ntp' # Где брать время для настройки часов DS3231
                                            # ntp - сервер NTP, local - часы контроллера
+        self.config['TEMP'] = [0.00, 0.00, 0.00] # Пустой массив для данных о темратуре
            
         loop = asyncio.get_event_loop()
-        loop.create_task(self._heartbeat())
-        loop.create_task(self._update_time())
-        loop.create_task(self._display_information())
-        loop.create_task(self._conversion_info())
+        loop.create_task(self._heartbeat()) # Индикация подключения WiFi
+        loop.create_task(self._update_time()) # Получение времени с сервера NTP и обноление по Time Zone
+        loop.create_task(self._display_information()) #Вывод информации на LCD HD44780 по шине i2c через PCF8574
+        loop.create_task(self._conversion_info()) #Конвертируем информацию для LCD
+        loop.create_task(self._collection_temp()) # Сбор информации с температурных датчиков DS18D20
         
         
     # Индикация подключения WiFi
@@ -61,7 +63,17 @@ class ControlHeated(object):
                     await asyncio.sleep(10) #Если нет соединения с интернетом, ожидаем 10с
                 self.rtc.save_time()
             await asyncio.sleep(86400) # Проверка один раз в сутки
-
+            
+    
+    # Сбор информации с температурных датчиков DS18D20
+    async def _collection_temp(self):
+        ds = ds18x20.DS18X20(onewire.OneWire(Pin(0))) # Set Temperature sensors
+        roms = ds.scan()
+        while True:
+            ds.convert_temp()
+            await asyncio.sleep(2)
+            self.config['TEMP'] = [round(ds.read_temp(rom)-1.3, 2) for rom in roms]
+                
     
     #Выводим отладочные сообщения        
     def dprint(self, *args):
@@ -69,7 +81,7 @@ class ControlHeated(object):
             print(*args)
             
             
-    #Конвертируем информацию для LCD
+    #Конвертируем информацию о времени для LCD
     async def _conversion_info(self):
         while True:
             tm = self.rtc.rtctime()
@@ -93,6 +105,18 @@ class ControlHeated(object):
             lcd.putstr(self.config['DATE'])  #Выводим дату
             lcd.move_to(12, 0) #Переходим на 14 символ 1 строки
             lcd.putstr(self.config['TIME'])   #Выводим время
+            lcd.move_to(1, 1)
+            lcd.putstr('Room:')
+            lcd.move_to(1, 2)
+            lcd.putstr(str(self.config['TEMP'][0]))
+            lcd.move_to(7, 1)
+            lcd.putstr('Room1:')
+            lcd.move_to(7, 2)
+            lcd.putstr(str(self.config['TEMP'][1]))
+            lcd.move_to(14, 1)
+            lcd.putstr('Heat:')
+            lcd.move_to(14, 2)
+            lcd.putstr(str(self.config['TEMP'][2]))
             await asyncio.sleep_ms(900)
             
             
