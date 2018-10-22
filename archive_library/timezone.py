@@ -68,33 +68,32 @@ def sunday(year, month):
 
 #We calculate summer or winter time now
 def adj_tzone(utc, zone):
+    # Если текущий месяц больше 3(март) 
     if utc[1] > MONTH['sum']:
+        # Проверяем равен ли месяц 10(октябрь) или меньше 10 и меньше ли дата последнего воскресенья месяца
         if utc[1] <= MONTH['win'] and utc[2] < sunday(utc[0], MONTH['win']):
             print('Set TIME ZONE Summer:', TIME_ZONE[zone])
-            return TIME_ZONE[zone]
+            return TIME_ZONE[zone] # Возращаем летнее время
+    # Если месяц равен 3(март) проверяем больше ли дата последнего воскресенья месяца
     if utc[1] == MONTH['sum'] and utc[2] >= sunday(utc[0], MONTH['sum']):
         print('Set TIME ZONE Summer:', TIME_ZONE[zone])
-        return TIME_ZONE[zone]
+        return TIME_ZONE[zone] # Возращаем летнее время
     else:
         print('Set TIME ZONE Winter:', TIME_ZONE[zone] - 1)
-        return TIME_ZONE[zone] - 1
+        return TIME_ZONE[zone] - 1 # Во всех остальных случаях возращаем зимнее время
 
 
 # Adjustment time.localtime in accordance with time zones and changes for summer and winter time
 # Not the entire list of time zones is supported
-def setzone(tg=(2000, 0, 0, 0, 0, 0, 0, 0), zone=0, win=True): # По умолчанию включен переход на серзонное время
-    #utc = (tg[0], 10, 27,) + tg[3:7] #Added for debugging code
-    utc = tg
-    #utc = time.localtime(getntp()) # The tuple in UTC, for example - (2018, 10, 11, 13, 56, 9, 3, 284)
+def settime(ntp=True, zone=0, win=True): # По умолчанию включен переход на серзонное время
+    if ntp:
+        utc = time.localtime(getntp())  #При передаче параметра ntp=True включаем обноление времени с NTP
+    else:
+        utc = time.localtime()  # В противном случае, берем время localtime на микроконтроллере
     # We form a new cortege to upgrade from the time zone
     z = adj_tzone(utc, zone) if win else 0 # Проверяем включен ли переход на сезонное время
-    nt = utc[0:3] + (0,) + (utc[3]+z,) + utc[4:6] + (0,)
-    print('Update time for Time Zone: ', z)
+    zonetime = utc[0:3] + (0,) + (utc[3]+z,) + utc[4:6] + (0,)
     # We update the time taking into account the time zone and summer and winter time
-    machine.RTC().datetime(nt)
-    return'Local Time: ', str(time.localtime())
-
-
-def stime(zone=0, win=True):
-    setzone(time.localtime(getntp()), zone, win)
-    return'Local Time: ', str(time.localtime())
+    machine.RTC().datetime(zonetime)
+    print('New Local Time: ', str(time.localtime()))
+    
