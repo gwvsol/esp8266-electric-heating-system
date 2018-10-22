@@ -114,7 +114,7 @@ class ControlHeated(object):
             gc.collect() #Очищаем RAM
             mem_free = gc.mem_free()
             mem_alloc = gc.mem_alloc()
-            loctime = self.rtc.rtctime()
+            loctime = self.rtc.rtctime()[0:7]
             try:
                 self.dprint('Uptime:', str(mins)+' min')
                 self.dprint('Local Time:', loctime)
