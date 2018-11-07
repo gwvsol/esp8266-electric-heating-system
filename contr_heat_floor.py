@@ -2,112 +2,147 @@ from time import ticks_ms, ticks_diff, sleep_ms
 from machine import I2C, Pin, PWM
 from i2c_lcd_api import I2cLcd
 from i2c_ds3231 import DS3231
+from timezone import TZONE
+from simple_pid import PID
 import uasyncio as asyncio
 import time, network, gc, onewire, ds18b20
 
 i2c = I2C(scl=Pin(5), sda=Pin(4), freq=400000) # Настройка шины i2c
 
 class ControlHeated(object):
-    wifi_led = Pin(2, Pin.OUT, value = 1) #Pin2, светодиод на плате контроллера
+    wifi_led = Pin(2, Pin.OUT, value = 1)     #Pin2, светодиод на плате контроллера
     heat = PWM(Pin(12), freq=1000, duty=0)    #Pin12, управление нагревом пола
-    lcd_on = Pin(14, Pin.IN)              #Pin14, кнопка включения LCD
-    
+    lcd_on = Pin(14, Pin.IN)                  #Pin14, кнопка включения LCD
     
     def __init__(self):
-        # Основное хранилище настроек
-        self.config = {}
+        self.config = {}            #Основное хранилище настроек
         self.internet_outage = True #Интернет отключен(значение True)
         #Читаем из файла настройки WiFi и Временную зону и перевод времени с Летнего на Зимнее
         with open('config.txt') as conf_file:
-            self.config['ssid'] = conf_file.readline().rstrip()
-            self.config['wf_pass'] = conf_file.readline().rstrip()
-            self.config['timezone'] = int(conf_file.readline().rstrip())
-            self.config['win'] = conf_file.readline().rstrip()
-        # Числа для часов от 0 до 9 с добавлением 0 для часов
+            self.config['ssid'] = conf_file.readline().rstrip()    #SSID для подключения к WiFi
+            self.config['wf_pass'] = conf_file.readline().rstrip() #Пароль для подключения к WiFi
+            self.config['timezone'] = int(conf_file.readline().rstrip())  #Временная зона
+            self.config['win'] = conf_file.readline().rstrip()     #True включен переход на зимнее время False - выключен
+            self.config['T_ROOM'] =  float(conf_file.readline().rstrip()) #Температура в помещении при которой включиться отопление
+            self.config['DAY_POWER'] = int(conf_file.readline().rstrip()) #Уменьшение мощности в дневное время в %
+        #Числа для часов от 0 до 9 с добавлением 0 для часов
         self.config['num'] = ('00', '01', '02', '03', '04', '05', '06', '07', '08', '09')
-        self.config['LCD_I2C_ADDR'] = 0x27 # Адрес PCF8574 LCD
-        self.config['RTC_DS3231'] = 0x68   # Адрес DS3231 RTC
-        self.config['LCD_lines'] = 4       # Количество строк LCD
-        self.config['LCD_symbol'] = 20     # Количество символов в строке LCD
-        self.config['DATE'] = '2000-00-00' # Начальные значения даты
-        self.config['TIME'] = '00:00:00'   # Начальное значение времени
-        self.config['SOURCE_TIME'] = 'ntp' # Настройка DS3231, ntp - сервер NTP, local - часы MK
-        self.config['TEMP'] = [20.00, 20.00] # Начальный массив данных о темратуре[0]-Heat[1]-Room
-        self.config['ROOM'] = 22.7           # Температура в помещении при которой включиться отопление
-        self.config['HEAT_MAX'] = 55       # Максимальная температура нагревателя отопления
-        self.config['LCD_ON'] = True       # По умолчанию, при включении LCD включен
-        self.config['DUTY'] = [0, 24, 96, 206, 345, 500, 654, 793, 904, 975, 1023]
-        self.config['POWER'] = 0
+        self.config['LCD_I2C_ADDR'] = 0x27 #Адрес PCF8574 LCD
+        self.config['RTC_DS3231'] = 0x68   #Адрес DS3231 RTC
+        self.config['LCD_lines'] = 4       #Количество строк LCD
+        self.config['LCD_symbol'] = 20     #Количество символов в строке LCD
+        self.config['DATE'] = '2000-00-00' #Начальные значения даты
+        self.config['TIME'] = '00:00:00'   #Начальное значение времени
+        self.config['TARIFF_ZONE'] = ((7, 0, 0), (22, 59, 59)) #Тарифнаф зона день с 7 до 22:59
+        self.config['DAY_ZONE'] = ((7, 0, 0), (22, 59, 59))    #Дефолтное значение тарифной зоны день
+        self.config['SOURCE_TIME'] = 'ntp'   #Настройка DS3231, ntp-сервер NTP, local-часы MK
+        self.config['TEMP'] = [20.00, 20.00] #Начальный массив данных о темратуре [0]-Heat [1]-Room
+        self.config['T_DELTA'] = 0.0         #Дельта температуры
+        self.config['HEAT_MAX'] = 55         #Максимальная температура нагревателя отопления
+        self.config['DUTY_MIN'] = 0          #Режим работы ПИД регулятора, минимальный предел
+        self.config['DUTY_MAX'] = 100        #Режим работы ПИД регулятора, максимальный предел
+        self.config['LCD_ON'] = True         #По умолчанию, при включении LCD включен
+        self.config['POWER'] = 0             #Начальное значение мощности нагревателя
+        
         self.rtc = DS3231(i2c, self.config['RTC_DS3231'], self.config['timezone'], \
-            self.config['win'], self.config['SOURCE_TIME']) # Включаем автоматическую работу с модулем RTC DS3231
-           
+            self.config['win'], self.config['SOURCE_TIME']) #Включаем автоматическую работу с модулем RTC DS3231
+        self.tzone = TZONE(self.config['timezone'])         #Включаем поддержку TIME ZONE
+        
         loop = asyncio.get_event_loop()
-        loop.create_task(self._heartbeat()) # Индикация подключения WiFi
+        loop.create_task(self._heartbeat())           #Индикация подключения WiFi
         loop.create_task(self._display_information()) #Вывод информации на LCD HD44780 по шине i2c через PCF8574
-        loop.create_task(self._conversion_info()) #Конвертируем информацию для LCD
-        loop.create_task(self._lcd_on()) #Проверяем нажата ли кнопка ключения LCD
-        loop.create_task(self._collection_temp()) # Сбор информации с температурных датчиков DS18D20
-        loop.create_task(self._heat_on_off()) # Управление отоплением
-        loop.create_task(self._heat_logical()) # Логика управления отоплением
+        loop.create_task(self._conversion_info())     #Конвертируем информацию для LCD
+        #loop.create_task(self._lcd_on())             #Проверяем нажата ли кнопка ключения LCD
+        loop.create_task(self._collection_temp()) #Сбор информации с температурных датчиков DS18D20
+        loop.create_task(self._heat_on_off())     #Управление отоплением
+        loop.create_task(self._heat_logical())    #Логика управления отоплением
+        loop.create_task(self._calc_tariff_zone())#Вычисление тарифных зон
         
         
-    # Включение LCD на 15 секунд
+    #Включение LCD на 15 секунд
     async def _lcd_on(self):
         while True:
-            await asyncio.sleep(15) #В момент включения, LCD работает 15с, затем выключается
+            await asyncio.sleep(15)         #В момент включения, LCD работает 15с, затем выключается
             while self.lcd_on():
                 self.config['LCD_ON'] = False
-                await asyncio.sleep_ms(20) #Проверяем каждые 20ms нажатали кнопка
+                await asyncio.sleep_ms(20)  #Проверяем каждые 20ms нажатали кнопка
             self.config['LCD_ON'] = True
+            
             
     #Управление отоплением
     async def _heat_on_off(self):
         while True:
-            self.heat.duty(self.config['DUTY'][self.config['POWER']])
+            self.heat.duty(self.config['POWER'])
             await asyncio.sleep(1)
+            
             
     #Логика управления отоплением
     async def _heat_logical(self):
+        #Создаем ПИД регулятор
+        pid = PID(5, 0.1, 0.3, setpoint=self.config['T_ROOM']-self.config['T_DELTA'])
+        #Устанавливаем минимальный и максимальный предел работы регулятора
+        pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
         while True:
             await asyncio.sleep(2)
-            # Выполняется, если не превышена максимальная температура нагревателя self.config['HEAT_MAX']
-            while self.config['TEMP'][0] <  self.config['HEAT_MAX']:
-                await asyncio.sleep(1)
-                print('Room:', str(self.config['TEMP'][1]))
-                # Если температура в помещении меньше чем self.config['ROOM'] включаем нагрев
-                if self.config['TEMP'][1] < self.config['ROOM']:
-                    print('Heat:', str(self.config['TEMP'][0]))
-                    self.config['POWER'] = 1
-                else: 
-                    self.config['POWER'] = 0
-                    await asyncio.sleep(1)
-            self.config['POWER'] = 0 # Превышена максимальная температура выключаем нагрев    
+            #Выполняется, если не превышена максимальная температура нагревателя self.config['HEAT_MAX']
+            while self.config['TEMP'][0] <  self.config['HEAT_MAX']: #Защита от перегрева
+                await asyncio.sleep(3)
+                #Вычисляем мощность нагрева, диапазон от self.config['DUTY_MIN'] до self.config['DUTY_MAX']
+                power = pid(self.config['TEMP'][1]) 
+                PWM = power*100 #Для ШИМ необходим диапазон от 0 до 1000, умножаем мощность на 100
+                #Если тариф дневной зоны, ограничиваем мощность нагрева на self.config['DAY_POWER'] %
+                if self.config['DAY_ZONE'][0] < self.rtc.rtctime()[3:6] and \
+                self.config['DAY_ZONE'][1] > self.rtc.rtctime()[3:6]:
+                    self.config['POWER'] = round(PWM) if PWM < (self.config['DUTY_MAX']*10 - \
+                    ((self.config['DUTY_MAX']*10)/100*self.config['DAY_POWER']))\
+                    else round(self.config['DUTY_MAX']*10 - \
+                    ((self.config['DUTY_MAX']*10)/100*self.config['DAY_POWER']))
+                else: #Если тариф ночной зоны, разрешаем нагрев на 100%
+                    self.config['POWER'] = round(PWM) if PWM < self.config['DUTY_MAX']*10 \
+                    else self.config['DUTY_MAX']*10
+                #print('PWM in:', self.config['POWER'], str(round(self.config['POWER']/10))+'%')
+            self.config['POWER'] = 0 #Превышена максимальная температура выключаем нагрев
             
-        
-    # Индикация подключения WiFi
+            
+    #Вычисление тарифной зоны день
+    async def _calc_tariff_zone(self):
+        while True:
+            if self.rtc.rtctime()[4] == 0: #Если минуты обнулились, прошел 1 час делаем проверку тарифной зоны
+                delta = self.config['timezone']-self.tzone.adj_tzone(self.rtc.rtctime())
+                if delta == 1: #Если Зимняя тарифная зона вычитаем из часов delta
+                    self.config['DAY_ZONE'] = ((self.config['TARIFF_ZONE'][0][0]-delta,)\
+                    +self.config['TARIFF_ZONE'][0][1:]),\
+                    (self.config['TARIFF_ZONE'][1][0]-delta,)+self.config['TARIFF_ZONE'][1][1:]
+                else: #Если Летняя тарифная зона, 'DAY_ZONE' = 'TARIFF_ZONE'
+                    self.config['DAY_ZONE'] = self.config['TARIFF_ZONE']
+                await asyncio.sleep(60)
+            await asyncio.sleep(1)
+            
+            
+    #Индикация подключения WiFi
     async def _heartbeat(self):
         while True:
             if self.internet_outage:
-                self.wifi_led(not self.wifi_led()) # Быстрое мигание, если соединение отсутствует
+                self.wifi_led(not self.wifi_led()) #Быстрое мигание, если соединение отсутствует
                 await asyncio.sleep_ms(200) 
             else:
-                self.wifi_led(0) # Редкое мигание при подключении
+                self.wifi_led(0) #Редкое мигание при подключении
                 await asyncio.sleep_ms(50)
                 self.wifi_led(1)
                 await asyncio.sleep_ms(5000)
-                
-                
-    # Сбор информации с температурных датчиков DS18D20
+            
+            
+    #Сбор информации с температурных датчиков DS18D20
     async def _collection_temp(self):
-        ds = ds18b20.DS18X20(onewire.OneWire(Pin(0))) # Set Temperature sensors
+        ds = ds18b20.DS18X20(onewire.OneWire(Pin(0))) #Set Temperature sensors
         roms = ds.scan()
         while True:
             ds.convert_temp()
             await asyncio.sleep(2)
             self.config['TEMP'] = [round(ds.read_temp(rom) - 1.3, 2) for rom in roms]
-                
-    
-    #Выводим отладочные сообщения        
+            
+            
+    #Выводим отладочные сообщения
     def dprint(self, *args):
         if self.DEBUG:
             print(*args)
@@ -130,11 +165,13 @@ class ControlHeated(object):
             else:
                 await asyncio.sleep_ms(800)
             
-    
+            
     #Вывод информации на LCD HD44780 по шине i2c через PCF8574
     async def _display_information(self):
         lcd = I2cLcd(i2c, self.config['LCD_I2C_ADDR'], self.config['LCD_lines'], \
         self.config['LCD_symbol'])
+        #Символ который затирает 
+        lcd.custom_char(0, bytearray([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]))
         while True:
             if self.config['LCD_ON']: #Если нажата кнопка включаем LCD
                 lcd.backlight_on()
@@ -154,9 +191,15 @@ class ControlHeated(object):
                 lcd.move_to(13, 1)
                 lcd.putstr('Power:')
                 lcd.move_to(14, 2) #Выводим мощность нагрева
-                lcd.putstr(str(self.config['POWER'])+'0%')
+                lcd.putstr(str(round(self.config['POWER']/10))+'%')
+                if round(self.config['POWER']/10) < 100: #Если мощность меньше 100
+                    lcd.move_to(17, 2)
+                    lcd.putchar(chr(0)) #Затираем 17 символ, т.к нужно только 3 символа
+                if round(self.config['POWER']/10) < 10 : #Если мощность меньше 10
+                    lcd.move_to(16, 2)
+                    lcd.putchar(chr(0)) #Затираем 16 символ, т.к нужно только 2 символа
                 await asyncio.sleep_ms(900)
-            else: # В противном случае экран выключен
+            else: #В противном случае экран выключен
                 lcd.display_off()
                 lcd.backlight_off()
                 await asyncio.sleep_ms(900)
@@ -173,7 +216,7 @@ class ControlHeated(object):
         self.ip = sta_if.ifconfig()[0]
         self.internet_outage = False #Интернет подключен(значение False)
         
-
+        
     async def _run_main_loop(self): #Бесконечный цикл
         mins = 0
         while True:
@@ -188,13 +231,14 @@ class ControlHeated(object):
                 self.dprint('IP:', self.ip)
                 self.dprint('Temp Room:', str(self.config['TEMP'][1]))
                 self.dprint('Temp Heat:', str(self.config['TEMP'][0]))
+                self.dprint('RWM Heat:', str(round(self.config['POWER']/10))+'%')
                 self.dprint('MemFree:', str(round(mem_free/1024, 2))+' Kb')
                 self.dprint('MemAlloc:', str(round(mem_alloc/1024, 2))+' Kb')
             except Extension as e:
                 self.dprint('Exception occurred: ', e)
             mins += 1
             await asyncio.sleep(60)
-
+            
            
     async def main(self):
          while True:
@@ -204,10 +248,10 @@ class ControlHeated(object):
              except Exception as e:
                  self.dprint('Global communication failure: ', e)
                  await asyncio.sleep(20)
-                 
-                              
-ControlHeated.DEBUG = True	# Режим отладки, делаем программу разговорчивой
-        
+            
+            
+ControlHeated.DEBUG = True  #Режим отладки, делаем программу разговорчивой
+            
 gc.collect() #Очищаем RAM
 controll = ControlHeated()
 loop = asyncio.get_event_loop()

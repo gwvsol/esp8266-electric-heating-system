@@ -59,3 +59,13 @@ def test_main():
 
 if __name__ == "__main__":
     test_main()
+    
+#from machine import I2C, Pin
+#from i2c_lcd_api import I2cLcd
+#i2c = I2C(scl=Pin(5), sda=Pin(4), freq=400000)
+#lcd = I2cLcd(i2c, 0x27, 4, 20)
+#lcd.backlight_on()
+#lcd.display_on()
+#lcd.custom_char(0, bytearray([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]))
+#lcd.custom_char(1, bytearray([0x0E,0x1B,0x11,0x11,0x11,0x11,0x11,0x1F]))
+#lcd.putchar(chr(0))
