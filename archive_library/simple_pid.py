@@ -176,7 +176,7 @@ class PID(object):
         self._min_output = min_output
         self._max_output = max_output
         
-        # сранение сумммы пропорциональной и интегральной составляющей 
+        # сранение суммы пропорциональной и интегральной составляющей 
         # с установленным нижним и верхним пределом
         self._error_sum = _clamp(self._error_sum, self.output_limits)
         # сохранение предыдущего входного значения
