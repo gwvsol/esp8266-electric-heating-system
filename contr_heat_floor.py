@@ -41,6 +41,9 @@ class ControlHeated(object):
         self.config['HEAT_MAX'] = 55         #Максимальная температура нагревателя отопления
         self.config['DUTY_MIN'] = 0          #Режим работы ПИД регулятора, минимальный предел
         self.config['DUTY_MAX'] = 100        #Режим работы ПИД регулятора, максимальный предел
+        self.config['PID_KP'] = 5
+        self.config['PID_KI'] = 0.1
+        self.config['PID_KD'] = 0.01
         self.config['LCD_ON'] = True         #По умолчанию, при включении LCD включен
         self.config['POWER'] = 0             #Начальное значение мощности нагревателя
         
@@ -79,7 +82,8 @@ class ControlHeated(object):
     #Логика управления отоплением
     async def _heat_logical(self):
         #Создаем ПИД регулятор
-        pid = PID(5, 0.1, 0.3, setpoint=self.config['T_ROOM']-self.config['T_DELTA'])
+        pid = PID(self.config['PID_KP'], self.config['PID_KI'], self.config['PID_KD'], \
+        setpoint=self.config['T_ROOM']-self.config['T_DELTA'])
         #Устанавливаем минимальный и максимальный предел работы регулятора
         pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
         while True:
@@ -91,16 +95,17 @@ class ControlHeated(object):
                 power = pid(self.config['TEMP'][1]) 
                 PWM = power*100 #Для ШИМ необходим диапазон от 0 до 1000, умножаем мощность на 100
                 #Если тариф дневной зоны, ограничиваем мощность нагрева на self.config['DAY_POWER'] %
-                if self.config['DAY_ZONE'][0] < self.rtc.rtctime()[3:6] and \
-                self.config['DAY_ZONE'][1] > self.rtc.rtctime()[3:6]:
-                    self.config['POWER'] = round(PWM) if PWM < (self.config['DUTY_MAX']*10 - \
-                    ((self.config['DUTY_MAX']*10)/100*self.config['DAY_POWER']))\
-                    else round(self.config['DUTY_MAX']*10 - \
-                    ((self.config['DUTY_MAX']*10)/100*self.config['DAY_POWER']))
+                if self.config['DAY_ZONE'][0] < self.rtc.rtctime()[3:6] and self.config['DAY_ZONE'][1] > self.rtc.rtctime()[3:6]:
+                    if PWM < (self.config['DUTY_MAX']*10 - ((self.config['DUTY_MAX']*10)/100*self.config['DAY_POWER'])):
+                        self.config['POWER'] = round(PWM)
+                    else:
+                        self.config['POWER'] = round(self.config['DUTY_MAX']*10 - ((self.config['DUTY_MAX']*10)/100*self.config['DAY_POWER']))
                 else: #Если тариф ночной зоны, разрешаем нагрев на 100%
-                    self.config['POWER'] = round(PWM) if PWM < self.config['DUTY_MAX']*10 \
-                    else self.config['DUTY_MAX']*10
-                #print('PWM in:', self.config['POWER'], str(round(self.config['POWER']/10))+'%')
+                    if PWM < self.config['DUTY_MAX']*10:
+                        self.config['POWER'] = round(PWM) 
+                    else:
+                        self.config['DUTY_MAX']*10
+                print('PWM in:', PWM, 'POWER out:', self.config['POWER'], 'POWER in %', str(round(self.config['POWER']/10))+'%')
             self.config['POWER'] = 0 #Превышена максимальная температура выключаем нагрев
             
             
