@@ -72,18 +72,13 @@ def index(req, resp):
                               <a class="login" href="admin">ADMIN PANEL</a><br><br>
                               <span>MAIN PARAMETERS</span></div>""")
     yield from resp.awrite('<div class="info">')
-    yield from resp.awrite('<p>Up time: %s Min</p>' %config['Uptime'])
-    yield from resp.awrite('<p>Local Date: {}-{}-{}</p>'.format(t[0], t[1], t[2]))
-    yield from resp.awrite('<p>Local Time: {}:{}</p>'.format(t[3], t[4]))
+    yield from resp.awrite('<p>IP: %s </p>' %config['IP'])
+    yield from resp.awrite('<p>{}-{}-{} {}:{}</p>'.format(t[0], t[1], t[2], t[3], t[4]))
     yield from resp.awrite('<p>Time zone: {}</p>'.format(config['timezone']))
     yield from resp.awrite('<p>DST changes: {}</p>'.format(config['DST']))
-    yield from resp.awrite('<p>IP: %s </p>' %config['IP'])
-    yield from resp.awrite('<p>Avail MEM: %s Kb</p>' %config['MemAvailab'])
-    yield from resp.awrite('<p>Free MEM: %s Kb</p>' %config['MemFree'])
     yield from resp.awrite('<p>Temp set: {}\'C</p>'.format(config['T_ROOM']))
-    yield from resp.awrite('<p>Temp in room: {}\'C</p>'.format(config['TEMP'][1]))
-    yield from resp.awrite('<p>Temp of heating: {}\'C</p>'.format(config['TEMP'][0]))
-    yield from resp.awrite('<p>Power limit set: {}%</p>'.format(config['DAY_POWER']))
+    yield from resp.awrite('<p>Temp in room: {}\'C</p>'.format(config['TEMP']))
+    yield from resp.awrite('<p>Power limit set: {}%</p>'.format(config['WEBPOWER']))
     yield from resp.awrite('<p>Actual power limit: {}%</p>'.format(round(config['POWER']/10)))
     yield from resp.awrite('</div>')
     yield from resp.awrite(http_footer)
@@ -314,8 +309,8 @@ def admin(req, resp):
             <form action='admin' method='POST'>
                 <fieldset>
                     <legend>Power and temperature setting</legend>
-                    <p><input type="number" name="temp" size="4" min="18.0" max="25.0" step="0.1" value="21.0">'C<br>Temperature</p>
-                    <p><input type="number" name="power" size="4" min="0" max="100" step="5" value="50">%<br>Daytime power limit</p>
+                    <p><input type="number" name="temp" size="4" min="18.0" max="25.0" step="0.1" value="20.0">'C<br>Temperature</p>
+                    <p><input type="number" name="power" size="4" min="10" max="80" step="5" value="50">%<br>Daytime power limit</p>
                     <p><input type="submit" value="Set Temp&Power"></p>
                 </fieldset>
             </form>
