@@ -86,7 +86,7 @@ def index(req, resp):
 
 @app.route("/admin")
 def admin(req, resp):
-    
+
     def new_config(data):
         print('Create new config.txt file')
         with open('config.txt', 'w') as f:
@@ -97,7 +97,7 @@ def admin(req, resp):
                     f.write(str(data[i]))
         config['T_ROOM'] = float(data[5])
         config['DAY_POWER'] = int(data[6])
-                    
+
     def set_time(ndate, ntime, ndaylight, zone, ntp):
         config['DST'] = ndaylight
         config['timezone'] = int(zone)
@@ -122,8 +122,8 @@ def admin(req, resp):
             config['SOURCE_TIME'] = source_time
             config['LOCAL_TIME'] = config['RTC'].rtctime()
             print('Set new date: {} and new time: {}'.format(ndate, ntime))
-        
-    
+
+
     if req.method == "POST":
         conf = []
         with open('config.txt', 'r') as f:
@@ -191,6 +191,15 @@ def admin(req, resp):
                 antp = req.form['ntp']
             except KeyError:
                 antp = None
+            try:
+                hour = req.form['houroff']
+            except KeyError:
+                hour = None
+            try:
+                heat = req.form['heatoff']
+            except KeyError:
+                heat = None
+            # Обрабатываем форму изменения логина и пароля
             if alogin != None and apassw != None:
                 if req.form['passw'] == req.form['repassw']:
                     passw = setpasswd(req.form['passw'].lower(), req.form['login'].lower())
@@ -216,11 +225,9 @@ def admin(req, resp):
                     yield from resp.awrite("""<h3><a class="header" href="admin">ADMIN PANEL</a></h3>
                                               <h3 class="menu">Passwords do not match</h3> """)
                     yield from resp.awrite(http_footer)
+            # Обрабатываем форму времени, часового пояса, летнего и зимнего времени
             elif sdate != None and stime != None and daylight != None and tzone != None:
-                if conf[4] == 'True':
-                    dz = 'ON'
-                else:
-                    dz = 'OFF'
+                dz = 'ON' if conf[4] == 'True' else 'OFF'
                 yield from resp.awrite(http_head)
                 yield from resp.awrite('<h3><a class="header" href="admin">ADMIN PANEL</a></h3>')
                 yield from resp.awrite('<div class="info">')
@@ -234,6 +241,7 @@ def admin(req, resp):
                 yield from resp.awrite(http_footer)
                 new_config(conf)
                 set_time(sdate, stime, daylight, tzone, antp)
+            # Обрабатываем форму настройки WiFi
             elif wifi != None and ssid != None and pasw != None:
                 yield from resp.awrite(http_head)
                 yield from resp.awrite('<h3><a class="header" href="admin">ADMIN PANEL</a></h3>')
@@ -244,6 +252,7 @@ def admin(req, resp):
                 yield from resp.awrite('</div>')
                 yield from resp.awrite(http_footer)
                 new_config(conf)
+            # Обрабатываем форму температуры и ограничения мощности
             elif temp != None and power != None:
                 yield from resp.awrite(http_head)
                 yield from resp.awrite('<h3><a class="header" href="admin">ADMIN PANEL</a></h3>')
@@ -253,6 +262,23 @@ def admin(req, resp):
                 yield from resp.awrite('</div>')
                 yield from resp.awrite(http_footer)
                 new_config(conf)
+            # Обрабатываем форму включения/отключения нагрева
+            elif hour != None and heat != None:
+                config['HOUROFF'] = int(hour)
+                yield from resp.awrite(http_head)
+                yield from resp.awrite('<h3><a class="header" href="admin">ADMIN PANEL</a></h3>')
+                yield from resp.awrite('<div class="info">')
+                if heat == 'True':
+                    ht = 'ON'
+                    config['HEAT'] = True
+                    yield from resp.awrite('<p>Heat: {} </p>'.format(ht))
+                elif heat == 'False':
+                    ht = 'OFF'
+                    config['HEAT'] = False
+                    yield from resp.awrite('<p>Heat: {} {} Hour</p>'.format(ht, hour))
+                yield from resp.awrite('</div>')
+                yield from resp.awrite(http_footer)
+                
     else:
         if b"Authorization" not in req.headers:
             yield from resp.awrite('HTTP/1.0 401 NA\r\n'
@@ -271,6 +297,16 @@ def admin(req, resp):
             <div class="header"><span>ESP8266 Admin</span></div>
             <br>
             <div class = "admin">
+            <form action='admin' method='POST'>
+                <fieldset>
+                    <legend>Heating ON/OFF</legend>
+                    <p><input type="radio" name="heatoff" checked value="True">Heating ON<br>
+                       <input type="radio" name="heatoff" value="False">Heating OFF</p>
+                    <p><input type="number" name="houroff" size="4" min="1" max="6" step="1" value="1">Hour<br>Turn-off time of heating</p>
+                    <p><input type="submit" value="ON/OFF Heating"></p>
+                </fieldset>
+            </form>
+            <br>
             <form action='admin' method='POST'>
                 <fieldset>
                     <legend>Setting date and time</legend>
