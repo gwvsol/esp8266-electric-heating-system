@@ -72,6 +72,8 @@ class Main(HeatControl):
         self.config['POWER'] = 0             #Начальное значение мощности нагревателя
         self.config['WEB_TIME'] = None       #Начальное значение для времени передаваемого с веб интерфейса
         self.config['RTC']= DS3231(self.i2c) #Включаем автоматическую работу с модулем RTC DS3231
+        self.config['HOUROFF'] = 1           #
+        self.config['HEAT'] = True           #
         
         self.tzone = TZONE(self.config['timezone'])     #Включаем поддержку TIME ZONE
         
@@ -95,23 +97,27 @@ class Main(HeatControl):
         t_root = self.config['T_ROOM']
         while True:
             await asyncio.sleep(3)
-            #Если тариф дневной зоны, ограничиваем мощность нагрева на self.config['DAY_POWER']%
-            if self.config['DAY_ZONE'][0] < self.config['RTC'].rtctime()[3:6] and \
-            self.config['DAY_ZONE'][1] > self.config['RTC'].rtctime()[3:6]:
-                pid.output_limits = (self.config['DUTY_MIN'], self.config['DAY_POWER'])
-                self.config['WEBPOWER'] = self.config['DAY_POWER']
-            else: #Если тариф ночной зоны, разрешаем нагрев до self.config['DUTY_MAX']%
-                pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
-                self.config['WEBPOWER'] = self.config['DUTY_MAX']
-            #Если значение поддерживаемой температуры было изменено, применяем изменения
-            if t_root != self.config['T_ROOM']:
-                pid.set_setpoint = self.config['T_ROOM']
-                t_root = self.config['T_ROOM']
-            #Вычисляем мощность нагрева
-            power = pid(self.config['TEMP']) 
-            PWM = power*10 #Для ШИМ необходим диапазон от 0 до 1000, умножаем мощность на 10
-            self.config['POWER'] = round(PWM)
-            self.dprint('PWM in:', PWM, 'POWER out:', self.config['POWER'], 'POWER in %', str(round(self.config['POWER']/10))+'%')
+            if self.config['HEAT']:
+                #Если тариф дневной зоны, ограничиваем мощность нагрева на self.config['DAY_POWER']%
+                if self.config['DAY_ZONE'][0] < self.config['RTC'].rtctime()[3:6] and \
+                self.config['DAY_ZONE'][1] > self.config['RTC'].rtctime()[3:6]:
+                    pid.output_limits = (self.config['DUTY_MIN'], self.config['DAY_POWER'])
+                    self.config['WEBPOWER'] = self.config['DAY_POWER']
+                else: #Если тариф ночной зоны, разрешаем нагрев до self.config['DUTY_MAX']%
+                    pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
+                    self.config['WEBPOWER'] = self.config['DUTY_MAX']
+                #Если значение поддерживаемой температуры было изменено, применяем изменения
+                if t_root != self.config['T_ROOM']:
+                    pid.set_setpoint = self.config['T_ROOM']
+                    t_root = self.config['T_ROOM']
+                #Вычисляем мощность нагрева
+                power = pid(self.config['TEMP'])
+                PWM = power*10 #Для ШИМ необходим диапазон от 0 до 1000, умножаем мощность на 10
+                self.config['POWER'] = round(PWM)
+                self.dprint('PWM in:', PWM, 'POWER out:', self.config['POWER'], 'POWER in %', str(round(self.config['POWER']/10))+'%')
+            else:
+                self.config['POWER'] = 0
+                self.dprint('Heating OFF!!!')
             self.heat.duty(self.config['POWER'])
             await asyncio.sleep(57)
 
@@ -186,6 +192,7 @@ class Main(HeatControl):
                 self.dprint('Local Time:', '{}-{}-{} {}:{}:{}'.format(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5]))
                 self.dprint('Not WiFi:', self.config['internet_outage'])
                 self.dprint('IP:', self.config['IP'])
+                self.dprint('Heating:', self.config['HEAT'])
                 self.dprint('Temp Set:', str(self.config['T_ROOM']))
                 self.dprint('Power limit:', str(self.config['WEBPOWER']))
                 self.dprint('Temp Room:', str(self.config['TEMP']))
