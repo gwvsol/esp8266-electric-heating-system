@@ -76,6 +76,7 @@ def index(req, resp):
     yield from resp.awrite('<p>{}-{}-{} {}:{}</p>'.format(t[0], t[1], t[2], t[3], t[4]))
     yield from resp.awrite('<p>Time zone: {}</p>'.format(config['timezone']))
     yield from resp.awrite('<p>DST changes: {}</p>'.format(config['DST']))
+    yield from resp.awrite('<p>Heating: {}</p>'.format(config['HEAT']))
     yield from resp.awrite('<p>Temp set: {}\'C</p>'.format(config['T_ROOM']))
     yield from resp.awrite('<p>Temp in room: {}\'C</p>'.format(config['TEMP']))
     yield from resp.awrite('<p>Power limit set: {}%</p>'.format(config['WEBPOWER']))
@@ -263,19 +264,17 @@ def admin(req, resp):
                 yield from resp.awrite(http_footer)
                 new_config(conf)
             # Обрабатываем форму включения/отключения нагрева
-            elif hour != None and heat != None:
-                config['HOUROFF'] = int(hour)
+            elif heat != None:
                 yield from resp.awrite(http_head)
                 yield from resp.awrite('<h3><a class="header" href="admin">ADMIN PANEL</a></h3>')
                 yield from resp.awrite('<div class="info">')
                 if heat == 'True':
                     ht = 'ON'
                     config['HEAT'] = True
-                    yield from resp.awrite('<p>Heat: {} </p>'.format(ht))
                 elif heat == 'False':
                     ht = 'OFF'
                     config['HEAT'] = False
-                    yield from resp.awrite('<p>Heat: {} {} Hour</p>'.format(ht, hour))
+                yield from resp.awrite('<p>Heat: {} </p>'.format(ht))
                 yield from resp.awrite('</div>')
                 yield from resp.awrite(http_footer)
                 
@@ -302,7 +301,6 @@ def admin(req, resp):
                     <legend>Heating ON/OFF</legend>
                     <p><input type="radio" name="heatoff" checked value="True">Heating ON<br>
                        <input type="radio" name="heatoff" value="False">Heating OFF</p>
-                    <p><input type="number" name="houroff" size="4" min="1" max="6" step="1" value="1">Hour<br>Turn-off time of heating</p>
                     <p><input type="submit" value="ON/OFF Heating"></p>
                 </fieldset>
             </form>
