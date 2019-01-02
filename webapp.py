@@ -66,6 +66,8 @@ def setpasswd(login:str, passwd:str) -> str:
 @app.route("/")
 def index(req, resp):
     t = config['LOCAL_TIME']
+    dts = 'ON' if config['DST'] == True else 'OFF'
+    heat = 'ON' if config['HEAT'] == True else 'OFF'
     yield from picoweb.start_response(resp)
     yield from resp.awrite(http_head)
     yield from resp.awrite("""<div class="header">
@@ -75,12 +77,12 @@ def index(req, resp):
     yield from resp.awrite('<p>IP: %s </p>' %config['IP'])
     yield from resp.awrite('<p>{}-{}-{} {}:{}</p>'.format(t[0], t[1], t[2], t[3], t[4]))
     yield from resp.awrite('<p>Time zone: {}</p>'.format(config['timezone']))
-    yield from resp.awrite('<p>DST changes: {}</p>'.format(config['DST']))
-    yield from resp.awrite('<p>Heating: {}</p>'.format(config['HEAT']))
-    yield from resp.awrite('<p>Temp set: {}\'C</p>'.format(config['T_ROOM']))
-    yield from resp.awrite('<p>Temp in room: {}\'C</p>'.format(config['TEMP']))
-    yield from resp.awrite('<p>Power limit set: {}%</p>'.format(config['WEBPOWER']))
-    yield from resp.awrite('<p>Actual power limit: {}%</p>'.format(round(config['POWER']/10)))
+    yield from resp.awrite('<p>DST: {}</p>'.format(dts))
+    yield from resp.awrite('<p>Heating: {}</p>'.format(heat))
+    yield from resp.awrite('<p>Set: {}\'C</p>'.format(config['T_ROOM']))
+    yield from resp.awrite('<p>Room: {}\'C</p>'.format(config['TEMP']))
+    yield from resp.awrite('<p>Power set: {}%</p>'.format(config['WEBPOWER']))
+    yield from resp.awrite('<p>Actual power: {}%</p>'.format(round(config['POWER']/10)))
     yield from resp.awrite('</div>')
     yield from resp.awrite(http_footer)
 
@@ -100,7 +102,7 @@ def admin(req, resp):
         config['DAY_POWER'] = int(data[6])
 
     def set_time(ndate, ntime, ndaylight, zone, ntp):
-        config['DST'] = ndaylight
+        config['DST'] = True if ndaylight == 'True' else False
         config['timezone'] = int(zone)
         if ntp == 'True' and config['MODE_WiFi'] != 'AP':
             config['RTC'].save_time()
@@ -135,6 +137,7 @@ def admin(req, resp):
             conf.insert(4, f.readline().rstrip())           #True включен переход на зимнее время False - выключен
             conf.insert(5, f.readline().rstrip())           #Температура в помещении при которой включиться отопление
             conf.insert(6, f.readline().rstrip())           #Уменьшение мощности в дневное время в %
+        
         if b"Authorization" in req.headers:
             yield from req.read_form_data()
             try:
@@ -240,8 +243,8 @@ def admin(req, resp):
                 yield from resp.awrite('<p>Time zone set: %s </p>' %conf[3])
                 yield from resp.awrite('</div>')
                 yield from resp.awrite(http_footer)
-                new_config(conf)
                 set_time(sdate, stime, daylight, tzone, antp)
+                new_config(conf)
             # Обрабатываем форму настройки WiFi
             elif wifi != None and ssid != None and pasw != None:
                 yield from resp.awrite(http_head)

@@ -41,9 +41,10 @@ class Main(HeatControl):
             self.config['ssid'] = str(f.readline().rstrip())      #SSID для подключения к WiFi
             self.config['wf_pass'] = str(f.readline().rstrip())   #Пароль для подключения к WiFi
             self.config['timezone'] = int(f.readline().rstrip())  #Временная зона
-            self.config['DST'] = f.readline().rstrip()            #True включен переход на зимнее время False - выключен
+            dst = f.readline().rstrip()                           #True включен переход на зимнее время False - выключен
             self.config['T_ROOM'] =  float(f.readline().rstrip()) #Температура в помещении при которой включиться отопление
             self.config['DAY_POWER'] = int(f.readline().rstrip()) #Уменьшение мощности в дневное время в %
+            self.config['DST'] = True if dst == 'True' else False
         self.config['IP'] = None                                  #Дефолтный IP адрес
         self.config['internet_outage'] = True                     #Интернет отключен(значение True)
         if self.config['MODE_WiFi'] == 'AP':
@@ -186,19 +187,26 @@ class Main(HeatControl):
             self.config['FREQ'] = str(freq()/1000000)
             self.config['LOCAL_TIME'] = self.config['RTC'].rtctime()
             lt = self.config['LOCAL_TIME']
+            wifi = 'connected' if not self.config['internet_outage'] else 'disconnected'
+            heat = 'ON' if self.config['HEAT'] else 'OFF'
+            dst = 'ON' if self.config['DST'] else 'OFF'
             gc.collect()                                    #Очищаем RAM
             try:
+                self.dprint('################# DEBUG MESSAGE ##########################')
                 self.dprint('Uptime:', str(self.config['Uptime'])+' min')
-                self.dprint('Local Time:', '{}-{}-{} {}:{}:{}'.format(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5]))
-                self.dprint('Not WiFi:', self.config['internet_outage'])
+                self.dprint('WiFi:', wifi)
                 self.dprint('IP:', self.config['IP'])
-                self.dprint('Heating:', self.config['HEAT'])
-                self.dprint('Temp Set:', str(self.config['T_ROOM']))
-                self.dprint('Power limit:', str(self.config['WEBPOWER']))
-                self.dprint('Temp Room:', str(self.config['TEMP']))
-                self.dprint('MemFree:', self.config['MemFree']+' Kb')
-                self.dprint('MemAvailab:', self.config['MemAvailab']+' Kb')
-                self.dprint('FREQ:', self.config['FREQ']+' MHz')
+                self.dprint('Local Time:', '{}-{}-{} {}:{}:{}'.format(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5]))
+                self.dprint('DST:', dst)
+                self.dprint('Heating:', heat)
+                self.dprint('Power limit:', '{}%'.format(self.config['WEBPOWER']))
+                self.dprint('Actual power:', '{}%'.format(str(round(self.config['POWER']/10))))
+                self.dprint('Set:', '{}`C'.format(str(self.config['T_ROOM'])))
+                self.dprint('Room:', '{}`C'.format(str(self.config['TEMP'])))
+                self.dprint('MemFree:', '{}Kb'.format(self.config['MemFree']))
+                self.dprint('MemAvailab:', '{}Kb'.format(self.config['MemAvailab']))
+                self.dprint('FREQ:', '{}MHz'.format(self.config['FREQ']))
+                self.dprint('################# DEBUG MESSAGE END ######################')
             except Exception as e:
                 self.dprint('Exception occurred: ', e)
             self.config['Uptime'] += 1

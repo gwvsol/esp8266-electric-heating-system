@@ -121,22 +121,22 @@ class HeatControl(HeatControlBase):
     #Проверка соединения с Интернетом
     async def _check_wf(self):
         while True:
-            if not self.config['internet_outage']: #Если оединение установлено
+            if not self.config['internet_outage']:                      #Если оединение установлено
                 if self.config['WIFI'].status() == network.STAT_GOT_IP: #Проверяем наличие соединения
                     await asyncio.sleep(1)
-                else: #Если соединение отсутсвует или оборвано
+                else:                                                   #Если соединение отсутсвует или оборвано
                     await asyncio.sleep(1)
-                    self.config['internet_outage'] = True #Сообщаем, что соединение оборвано
-            else: #Если соединение отсутсвует
+                    self.config['internet_outage'] = True               #Сообщаем, что соединение оборвано
+            else:                                                       #Если соединение отсутсвует
                 await asyncio.sleep(1)
-                await self.reconnect() #Переподключаемся
+                await self.reconnect()                                  #Переподключаемся
         await asyncio.sleep(1)
         gc.collect()                                                    #Очищаем RAM
 
 
     #Подключаемся к WiFi или поднимаем точку доступа
     async def connect(self):
-        await self.connect_wf() #Подключение или точка доступа, зависит от настройки
+        await self.connect_wf()                                         #Подключение или точка доступа, зависит от настройки
         if self.config['MODE_WiFi'] == 'ST':
             loop = asyncio.get_event_loop()
             loop.create_task(self._check_wf())
