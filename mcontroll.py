@@ -20,7 +20,7 @@ class Main(HeatControl):
         self.i2c = I2C(scl=Pin(5), sda=Pin(4), freq=400000)     #Настройка шины i2c
         self.ds = ds18b20.DS18X20(onewire.OneWire(Pin(0)))      #Set Temperature sensors
         #Дефолтные настройки, если файла config.txt не будет обнаружено в системе
-        self.default_config = ['AP', 'HEAT_CONTROL', 'roottoor', 3, 'True', 21.0, 50]
+        self.default_config = ['AP', 'HEAT_CONTROL', 'roottoor', 3, 'True', 20.0, 50]
         #Дефолтный хещ логина и пароля для web admin (root:root)
         self.default_web = str(b'0242c0436daa4c241ca8a793764b7dfb50c223121bb844cf49be670a3af4dd18')
         if self.exists('config.txt') == False or not self.default_on(): #Eсли файла config.txt не обнаружено в системе создаем его
@@ -62,7 +62,7 @@ class Main(HeatControl):
         self.config['TARIFF_ZONE'] = ((7, 0, 0), (22, 59, 59)) #Тарифнаф зона день с 7 до 22:59
         self.config['DAY_ZONE'] = ((7, 0, 0), (22, 59, 59))    #Дефолтное значение тарифной зоны день
         self.config['SOURCE_TIME'] = 'ntp'   #Настройка DS3231, ntp-сервер NTP, local-часы MK
-        self.config['TEMP'] = 18.00          #Начальные данне темратуре в помещении
+        self.config['TEMP'] = 18.00          #Начальное значение темратуры в помещении
         self.config['DUTY_MIN'] = 0          #Режим работы ПИД регулятора, минимальный предел
         self.config['DUTY_MAX'] = 90         #Режим работы ПИД регулятора, максимальный предел, установлен в 90% 
                                              #для исключения перегрева нагревателя
@@ -73,12 +73,9 @@ class Main(HeatControl):
         self.config['POWER'] = 0             #Начальное значение мощности нагревателя
         self.config['WEB_TIME'] = None       #Начальное значение для времени передаваемого с веб интерфейса
         self.config['RTC']= DS3231(self.i2c) #Включаем автоматическую работу с модулем RTC DS3231
-        self.config['HOUROFF'] = 1           #
-        self.config['HEAT'] = True           #
-        
+        self.config['HEAT'] = True           #Начальное значение, нагрев включен
+
         self.tzone = TZONE(self.config['timezone'])     #Включаем поддержку TIME ZONE
-        
-        
 
         loop = asyncio.get_event_loop()
         loop.create_task(self._heartbeat())             #Индикация подключения WiFi

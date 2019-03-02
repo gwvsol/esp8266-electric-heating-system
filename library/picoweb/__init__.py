@@ -133,7 +133,7 @@ class WebApp:
 
             #print("================")
             #print(req, writer)
-            #print(req, (method, path, qs, proto), req.headers)
+            #print(req, (method, path, qs, proto))#, req.headers)
 
             # Find which mounted subapp (if any) should handle this request
             app = self
