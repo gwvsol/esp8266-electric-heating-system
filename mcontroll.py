@@ -2,85 +2,82 @@ import gc, network, onewire, ds18b20
 from machine import I2C, Pin, PWM, freq
 from time import mktime
 import uasyncio as asyncio
-gc.collect()                                            #Очищаем RAM
 from i2c_ds3231 import DS3231
 from timezone import TZONE
 from esp_pid import PID
 from hcontroll import HeatControl
 gc.collect()                                            #Очищаем RAM
-from webapp import app, bool_to_str
+from webapp import app, bool_to_str, read_write_root, read_write_config, update_config
 
 
 class Main(HeatControl):
     def __init__(self):
         super().__init__()
-        self.DEBUG = True                               #Режим отладки, делаем программу разговорчивой
+        self.DEBUG = True                               
         self.wifi_led = Pin(2, Pin.OUT, value = 1)      #Pin2, светодиод на плате контроллера
         self.heat = PWM(Pin(5), freq=1000, duty=0)     #Pin12, управление нагревом пола
         self.default_on = Pin(0, Pin.IN)                   #Pin14, кнопка для сброса настроек в дефолт
         self.i2c = I2C(scl=Pin(14), sda=Pin(12), freq=400000)     #Настройка шины i2c
         self.ds = ds18b20.DS18X20(onewire.OneWire(Pin(4)))      #Set Temperature sensors
         #Дефолтные настройки, если файла config.txt не будет обнаружено в системе
-        self.default_config = ['AP', 'HEAT_CONTROL', 'roottoor', 3, 'True', 20.0, 50]
-        #Дефолтный хещ логина и пароля для web admin (root:root)
+        self.default = {}
+        self.default['DEBUG'] = True             # Разрешаем отладочный сообщения
+        self.default['MODE_WiFi'] = 'AP'         # Включаем точку доступа
+        self.default['ssid'] = 'HEAT_CONTROL'    # Устанавливаем имя точки доступа
+        self.default['wf_pass'] = 'roottoor'     # Пароль для точки доступа
+        self.default['timezone'] = 3             # Временная зона
+        self.default['DST'] = True               # Разрешаем переход с летнего на зимнее время
+        self.default['SET_TEMP'] = 20.0          # Установка поддерживаемой температуры в помещении
+        self.default['DAY_POWER'] = 50           # Уменьшение мощности в дневное время в %
+        self.default['TIME_ON'] = (0, 0, 0, 22, 0, 0, 0, 0)     # Время включения обогрева 20:00
+        self.default['TIME_OFF'] = (0, 0, 0, 8, 0, 0, 0, 0)     # Время выключения обогрева 08:00
+        self.default['WORK_ALL'] = True          # Постоянный обогрев включен
+        self.default['WORK_TAB'] = False         # Работа по расписнию выключена
+        self.default['DS_K'] = -5.0              # Поправочный коэффициент для DS18B20
+        # Дефолтный хещ логин, пароль для web admin (root:root)
         self.default_web = str(b'0242c0436daa4c241ca8a793764b7dfb50c223121bb844cf49be670a3af4dd18')
-        if self.exists('config.txt') == False or not self.default_on(): #Eсли файла config.txt не обнаружено в системе создаем его
-            print('Create new config.txt file')
-            with open('config.txt', 'w') as f:
-                for i in range(len(self.default_config)):
-                    if i != len(self.default_config)-1:
-                        f.write(str(self.default_config[i])+'\n')
-                    else:
-                        f.write(str(self.default_config[i]))
-        if self.exists('root.txt') == False or not self.default_on(): #Eсли файла root.txt не обнаружено в системе создаем его
-            print('Create new root.txt file')
-            with open('root.txt', 'w') as f:
-                f.write(self.default_web)
-
-        with open('config.txt', 'r') as f:
-            self.config['MODE_WiFi'] = f.readline().rstrip()      #Режим работы WiFi AP или ST
-            self.config['ssid'] = str(f.readline().rstrip())      #SSID для подключения к WiFi
-            self.config['wf_pass'] = str(f.readline().rstrip())   #Пароль для подключения к WiFi
-            self.config['timezone'] = int(f.readline().rstrip())  #Временная зона
-            dst = f.readline().rstrip()                           #True включен переход на зимнее время False - выключен
-            self.config['T_ROOM'] =  float(f.readline().rstrip()) #Температура в помещении при которой включиться отопление
-            self.config['DAY_POWER'] = int(f.readline().rstrip()) #Уменьшение мощности в дневное время в %
-            self.config['DST'] = True if dst == 'True' else False
-        self.config['IP'] = None                                  #Дефолтный IP адрес
-        self.config['internet_outage'] = True                     #Интернет отключен(значение True)
+        # Основные настройки системы
+        self.config['DEBUG'] = True              # Режим отладки, делаем программу разговорчивой
+        self.config['RTC_DS3231'] = 0x68         # Адрес DS3231 RTC
+        self.config['WIFI_AP'] = ('192.168.4.1', '255.255.255.0', '192.168.4.1', '208.67.222.222')
+        self.config['TARIFF_ZONE'] = ((7, 0, 0), (22, 59, 59)) # Тарифнаф зона день с 7 до 22:59
+        self.config['DAY_ZONE'] = ((7, 0, 0), (22, 59, 59))    # Дефолтное значение тарифной зоны день
+        self.config['TEMP'] = 18.00          # Начальное значение темратуры в помещении
+        self.config['DUTY_MIN'] = 0          # Режим работы ПИД регулятора, минимальный предел
+        self.config['DUTY_MAX'] = 90         # Режим работы ПИД регулятора, максимальный предел, установлен в 90% 
+                                             # для исключения перегрева нагревателя
+        self.config['RTC_TIME'] = (0, 1, 1, 0, 0, 0, 0, 0)  # Дефолтное время
+        self.config['PID_KP'] = 5
+        self.config['PID_KI'] = 0.1
+        self.config['PID_KD'] = 0.01
+        self.config['SETPOWER'] = 0             # Заданное значение мощности нагревателя
+        self.config['POWER'] = 0                # Начальное значение мощности нагревателя
+        self.config['NTP_UPDATE'] = True        # Разрешаем обновление по NTP
+        self.config['IP'] = None                # Дефолтный IP адрес
+        self.config['no_wifi'] = True           # Интернет отключен(значение True)
+        # Eсли файла config.txt не обнаружено в системе создаем его
+        if self.exists('config.txt') == False or not self.default_on():
+            read_write_config(cfg=self.default)
+        # Eсли файла root.txt нет создаем его
+        if self.exists('root.txt') == False or not self.default_on():
+            read_write_root(passwd=self.default_web)
+        # Читаем настройки из файла config.txt
+        update_config()
+        # Начальные настройки сети AP или ST
         if self.config['MODE_WiFi'] == 'AP':
             self._ap_if = network.WLAN(network.AP_IF)
             self.config['WIFI'] = self._ap_if
         elif self.config['MODE_WiFi'] == 'ST':
             self._sta_if = network.WLAN(network.STA_IF)
             self.config['WIFI'] = self._sta_if
-        
-        self.config['Uptime'] = 0            #Время работы контроллера
-        self.config['RTC_DS3231'] = 0x68     #Адрес DS3231 RTC
-        self.config['WEB_Debug'] = True      #Режим отладки, делаем web server разговорчивым
-        self.config['WIFI_AP'] = ('192.168.4.1', '255.255.255.0', '192.168.4.1', '208.67.222.222')
-        self.config['TARIFF_ZONE'] = ((7, 0, 0), (22, 59, 59)) #Тарифнаф зона день с 7 до 22:59
-        self.config['DAY_ZONE'] = ((7, 0, 0), (22, 59, 59))    #Дефолтное значение тарифной зоны день
-        self.config['SOURCE_TIME'] = 'ntp'   #Настройка DS3231, ntp-сервер NTP, local-часы MK
-        self.config['TEMP'] = 18.00          #Начальное значение темратуры в помещении
-        self.config['DUTY_MIN'] = 0          #Режим работы ПИД регулятора, минимальный предел
-        self.config['DUTY_MAX'] = 90         #Режим работы ПИД регулятора, максимальный предел, установлен в 90% 
-                                             #для исключения перегрева нагревателя
-        self.config['RTC_TIME'] = (0, 1, 1, 0, 0, 0, 0, 0)  # Дефолтное время
-        self.config['WEBPOWER'] = 0          #Начальное значение мощности для вывода на web интерфейс
-        self.config['PID_KP'] = 5
-        self.config['PID_KI'] = 0.1
-        self.config['PID_KD'] = 0.01
-        self.config['POWER'] = 0             #Начальное значение мощности нагревателя
-        self.config['WEB_TIME'] = None       #Начальное значение для времени передаваемого с веб интерфейса
-        self.config['NTP_UPDATE'] = True                    # Разрешаем обновление по NTP
+        # Настройка для работы с RTC
         self.config['RTC']= DS3231(self.i2c, \
                     self.config['RTC_DS3231'], self.config['timezone'], ) #Включаем работу с модулем RTC DS3231
         self.rtc = self.config['RTC']
         self.config['NOW'] = mktime(self.rtc.datetime())
         self.config['HEAT'] = True           #Начальное значение, нагрев включен
-
-        self.tzone = TZONE(self.config['timezone'])     #Включаем поддержку TIME ZONE
+        # Включаем поддержку TIME ZONE
+        self.tzone = TZONE(self.config['timezone'])     
 
         loop = asyncio.get_event_loop()
         loop.create_task(self._heartbeat())              #Индикация подключения WiFi
@@ -100,7 +97,7 @@ class Main(HeatControl):
             if rtc[5] == 30: 
                 self.rtc.settime('dht')
             # Если у нас режим подключения к точке доступа и если есть соединение, подводим часы по NTP
-            if self.config['MODE_WiFi'] == 'ST' and not self.config['internet_outage']:
+            if self.config['MODE_WiFi'] == 'ST' and not self.config['no_wifi']:
                 # Подводка часов по NTP каждые сутки в 22:00:00
                 if rtc[3] == 22 and rtc[4] == 5 and rtc[5] < 3 and self.config['NTP_UPDATE']:
                         self.config['NTP_UPDATE'] = False
@@ -111,11 +108,11 @@ class Main(HeatControl):
     #Логика управления отоплением
     #async def _heat_logical(self):
     #    #Создаем ПИД регулятор
-    #    pid = PID(self.config['PID_KP'], self.config['PID_KI'], self.config['PID_KD'], setpoint=self.config['T_ROOM'])
+    #    pid = PID(self.config['PID_KP'], self.config['PID_KI'], self.config['PID_KD'], setpoint=self.config['SET_TEMP'])
     #    #Устанавливаем минимальный и максимальный предел работы регулятора
     #    pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
     #    #Устанавливаем поддерживаемую температуру
-    #    t_root = self.config['T_ROOM']
+    #    t_root = self.config['SET_TEMP']
     #    while True:
     #        await asyncio.sleep(3)
     #        if self.config['HEAT']:
@@ -123,14 +120,14 @@ class Main(HeatControl):
     #            if self.config['DAY_ZONE'][0] < self.config['RTC'].rtctime()[3:6] and \
     #            self.config['DAY_ZONE'][1] > self.config['RTC'].rtctime()[3:6]:
     #                pid.output_limits = (self.config['DUTY_MIN'], self.config['DAY_POWER'])
-    #                self.config['WEBPOWER'] = self.config['DAY_POWER']
+    #                self.config['SETPOWER'] = self.config['DAY_POWER']
     #            else: #Если тариф ночной зоны, разрешаем нагрев до self.config['DUTY_MAX']%
     #                pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
-    #                self.config['WEBPOWER'] = self.config['DUTY_MAX']
+    #                self.config['SETPOWER'] = self.config['DUTY_MAX']
     #            #Если значение поддерживаемой температуры было изменено, применяем изменения
-    #            if t_root != self.config['T_ROOM']:
-    #                pid.set_setpoint = self.config['T_ROOM']
-    #                t_root = self.config['T_ROOM']
+    #            if t_root != self.config['SET_TEMP']:
+    #                pid.set_setpoint = self.config['SET_TEMP']
+    #                t_root = self.config['SET_TEMP']
     #            #Вычисляем мощность нагрева
     #            power = pid(self.config['TEMP'])
     #            PWM = power*10 #Для ШИМ необходим диапазон от 0 до 1000, умножаем мощность на 10
@@ -146,10 +143,10 @@ class Main(HeatControl):
     #Индикация подключения WiFi
     async def _heartbeat(self):
         while True:
-            if self.config['internet_outage'] == True:
+            if self.config['no_wifi'] == True:
                 self.wifi_led(not self.wifi_led())      #Быстрое мигание, если соединение отсутствует
                 await asyncio.sleep_ms(200)
-            elif self.config['internet_outage'] == False:
+            elif self.config['no_wifi'] == False:
                 self.wifi_led(0)                        #Редкое мигание при подключении
                 await asyncio.sleep_ms(50)
                 self.wifi_led(1)
@@ -186,49 +183,23 @@ class Main(HeatControl):
         while True:
             self.ds.convert_temp()
             await asyncio.sleep(2)
-            self.config['TEMP'] = round(self.ds.read_temp(roms[0]) - 1.1 , 2)
+            self.config['TEMP'] = round(self.ds.read_temp(roms[0]) + self.default['DS_K'] , 2)
 
 
     #Запуск WEB приложения
     async def _start_web_app(self):
         while True:
-            gc.collect()                                    #Очищаем RAM
             await asyncio.sleep(5)
-            if not self.config['internet_outage'] or self.config['internet_outage'] == 'AP':
+            if not self.config['no_wifi'] or self.config['MODE_WiFi'] == 'AP':
                 self.ip = self.config['WIFI'].ifconfig()[0]
                 self.dprint('Run WebAPP...')
-                app.run(debug=self.config['WEB_Debug'], host =self.ip, port=80)
+                app.run(debug=self.config['DEBUG'], host =self.ip, port=80)
 
 
     async def _run_main_loop(self):                         #Бесконечный цикл
         while True:
-            self.config['MemFree'] = str(round(gc.mem_free()/1024, 2))
-            self.config['MemAvailab'] = str(round(gc.mem_alloc()/1024, 2))
-            self.config['FREQ'] = str(freq()/1000000)
-            lt = self.config['RTC_TIME']
-            wifi = 'connected' if not self.config['internet_outage'] else 'disconnected'
             gc.collect()                                    #Очищаем RAM
-            try:
-                self.dprint('################# DEBUG MESSAGE ##########################')
-                self.dprint('Uptime:', str(self.config['Uptime'])+' min')
-                self.dprint('WiFi:', wifi)
-                self.dprint('IP:', self.config['IP'])
-                self.dprint('Local Time:', '{:0>2d}-{:0>2d}-{:0>2d} {:0>2d}:{:0>2d}:{:0>2d}'\
-                            .format(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5]))
-                self.dprint('DST:', bool_to_str(self.config['DST']))
-                self.dprint('Heating:', bool_to_str(self.config['HEAT']))
-                self.dprint('Power limit:', '{}%'.format(self.config['WEBPOWER']))
-                self.dprint('Actual power:', '{}%'.format(str(round(self.config['POWER']/10))))
-                self.dprint('Set:', '{}`C'.format(str(self.config['T_ROOM'])))
-                self.dprint('Room:', '{}`C'.format(str(self.config['TEMP'])))
-                self.dprint('MemFree:', '{}Kb'.format(self.config['MemFree']))
-                self.dprint('MemAvailab:', '{}Kb'.format(self.config['MemAvailab']))
-                self.dprint('FREQ:', '{}MHz'.format(self.config['FREQ']))
-                self.dprint('################# DEBUG MESSAGE END ######################')
-            except Exception as e:
-                self.dprint('Exception occurred: ', e)
-            self.config['Uptime'] += 1
-            await asyncio.sleep(60)
+            await asyncio.sleep(30)
 
 
     async def main(self):

@@ -63,7 +63,7 @@ class HeatControlBase:
                 self.dprint('WiFi: AP Mode OK!')
                 self.config['IP'] = self.config['WIFI'].ifconfig()[0]
                 self.dprint('WiFi:', self.config['IP'])
-                self.config['internet_outage'] = 'AP'
+                self.config['no_wifi'] = 'AP'
         elif self.config['MODE_WiFi'] == 'ST': #Если подключаемся к сети
             self.dprint('Connecting to WiFi...')
             self._con() #Настройка для режима Точка доступа и подключения к сети WiFi
@@ -78,10 +78,10 @@ class HeatControlBase:
                 self.dprint('WiFi: Connection successfully!')
                 self.config['IP'] = self.config['WIFI'].ifconfig()[0]
                 self.dprint('WiFi:', self.config['IP'])
-                self.config['internet_outage'] = False #Сообщаем, что соединение успешно установлено
+                self.config['no_wifi'] = False #Сообщаем, что соединение успешно установлено
             #Если соединение по каким-то причинам не установлено
             if not self.config['WIFI'].isconnected():
-                self.config['internet_outage'] = True #Сообщаем, что соединение не установлено
+                self.config['no_wifi'] = True #Сообщаем, что соединение не установлено
                 self.dprint('WiFi: Connection unsuccessfully!')
             self._error_con() #Выводим сообщения, о причинах отсутствия соединения
 
@@ -102,13 +102,13 @@ class HeatControlBase:
         if self.config['WIFI'].status() == network.STAT_GOT_IP:
             #Сохраняем новый IP адрес
             self.config['IP'] = self.config['WIFI'].ifconfig()[0]
-            self.config['internet_outage'] = False #Сообщаем, что соединение успешно установлено
+            self.config['no_wifi'] = False #Сообщаем, что соединение успешно установлено
             self.dprint('WiFi: Reconnecting successfully!')
             self.dprint('WiFi:', self.config['IP'])
         self._error_con() #Выводим сообщения, о причинах отсутствия соединения
         #Если по какой-то причине соединение не установлено
         if not self.config['WIFI'].isconnected():
-            self.config['internet_outage'] = True #Сообщаем, что соединение не установлено
+            self.config['no_wifi'] = True #Сообщаем, что соединение не установлено
             self.dprint('WiFi: Reconnecting unsuccessfully!')
         await asyncio.sleep(1)
 
@@ -121,12 +121,12 @@ class HeatControl(HeatControlBase):
     #Проверка соединения с Интернетом
     async def _check_wf(self):
         while True:
-            if not self.config['internet_outage']:                      #Если оединение установлено
+            if not self.config['no_wifi']:                      #Если оединение установлено
                 if self.config['WIFI'].status() == network.STAT_GOT_IP: #Проверяем наличие соединения
                     await asyncio.sleep(1)
                 else:                                                   #Если соединение отсутсвует или оборвано
                     await asyncio.sleep(1)
-                    self.config['internet_outage'] = True               #Сообщаем, что соединение оборвано
+                    self.config['no_wifi'] = True               #Сообщаем, что соединение оборвано
             else:                                                       #Если соединение отсутсвует
                 await asyncio.sleep(1)
                 await self.reconnect()                                  #Переподключаемся
