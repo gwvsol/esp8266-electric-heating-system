@@ -1,38 +1,35 @@
-import gc, network, onewire, ds18b20
-from machine import I2C, Pin, PWM, freq
+import network, onewire, ds18b20
+from machine import I2C, Pin, PWM
 from time import mktime
 import uasyncio as asyncio
+from gc import collect, mem_free, mem_alloc
 from i2c_ds3231 import DS3231
 from timezone import TZONE
 from esp_pid import PID
-from hcontroll import HeatControl
-gc.collect()                                            #Очищаем RAM
-from webapp import app, bool_to_str, read_write_root, read_write_config, update_config
-
+from hcontroll import HeatControl, read_write_root, read_write_config, update_config
+from webapp import app
+collect()                                                               # Очищаем RAM
 
 class Main(HeatControl):
     def __init__(self):
         super().__init__()
-        self.DEBUG = True                               
-        self.wifi_led = Pin(2, Pin.OUT, value = 1)      #Pin2, светодиод на плате контроллера
-        self.heat = PWM(Pin(5), freq=1000, duty=0)     #Pin12, управление нагревом пола
-        self.default_on = Pin(0, Pin.IN)                   #Pin14, кнопка для сброса настроек в дефолт
-        self.i2c = I2C(scl=Pin(14), sda=Pin(12), freq=400000)     #Настройка шины i2c
-        self.ds = ds18b20.DS18X20(onewire.OneWire(Pin(4)))      #Set Temperature sensors
-        #Дефолтные настройки, если файла config.txt не будет обнаружено в системе
+        self.wifi_led = Pin(2, Pin.OUT, value = 1)                # Pin2, светодиод на плате контроллера
+        self.heat = PWM(Pin(5), freq=1000, duty=0)                # Pin12, управление нагревом пола
+        self.default_on = Pin(0, Pin.IN)                          # Pin14, кнопка для сброса настроек в дефолт
+        self.i2c = I2C(scl=Pin(14), sda=Pin(12), freq=400000)     # Настройка шины i2c
+        self.ds = ds18b20.DS18X20(onewire.OneWire(Pin(4)))        # Set Temperature sensors
+        # Дефолтные настройки, если файла config.txt не будет обнаружено в системе
         self.default = {}
-        self.default['DEBUG'] = True             # Разрешаем отладочный сообщения
-        self.default['MODE_WiFi'] = 'AP'         # Включаем точку доступа
+        self.default['MODE'] = 'AP'         # Включаем точку доступа
         self.default['ssid'] = 'HEAT_CONTROL'    # Устанавливаем имя точки доступа
-        self.default['wf_pass'] = 'roottoor'     # Пароль для точки доступа
+        self.default['pass'] = 'roottoor'        # Пароль для точки доступа
         self.default['timezone'] = 3             # Временная зона
         self.default['DST'] = True               # Разрешаем переход с летнего на зимнее время
-        self.default['SET_TEMP'] = 20.0          # Установка поддерживаемой температуры в помещении
-        self.default['DAY_POWER'] = 50           # Уменьшение мощности в дневное время в %
-        self.default['TIME_ON'] = (0, 0, 0, 22, 0, 0, 0, 0)     # Время включения обогрева 20:00
-        self.default['TIME_OFF'] = (0, 0, 0, 8, 0, 0, 0, 0)     # Время выключения обогрева 08:00
-        self.default['WORK_ALL'] = True          # Постоянный обогрев включен
-        self.default['WORK_TAB'] = False         # Работа по расписнию выключена
+        self.default['SET'] = 20.0               # Установка поддерживаемой температуры в помещении
+        self.default['DAY'] = 50                 # Уменьшение мощности в дневное время в %
+        self.default['ON'] = (0, 0, 0, 22, 0, 0, 0, 0)     # Время включения обогрева 20:00
+        self.default['OFF'] = (0, 0, 0, 8, 0, 0, 0, 0)     # Время выключения обогрева 08:00
+        self.default['WORK'] = 'ON'              # Постоянный обогрев включен
         self.default['DS_K'] = -5.0              # Поправочный коэффициент для DS18B20
         # Дефолтный хещ логин, пароль для web admin (root:root)
         self.default_web = str(b'0242c0436daa4c241ca8a793764b7dfb50c223121bb844cf49be670a3af4dd18')
@@ -64,30 +61,34 @@ class Main(HeatControl):
         # Читаем настройки из файла config.txt
         update_config()
         # Начальные настройки сети AP или ST
-        if self.config['MODE_WiFi'] == 'AP':
+        if self.config['MODE'] == 'AP':
             self._ap_if = network.WLAN(network.AP_IF)
             self.config['WIFI'] = self._ap_if
-        elif self.config['MODE_WiFi'] == 'ST':
+        elif self.config['MODE'] == 'ST':
             self._sta_if = network.WLAN(network.STA_IF)
             self.config['WIFI'] = self._sta_if
         # Настройка для работы с RTC
         self.config['RTC']= DS3231(self.i2c, \
-                    self.config['RTC_DS3231'], self.config['timezone'], ) #Включаем работу с модулем RTC DS3231
+                    self.config['RTC_DS3231'], self.config['timezone'], ) #В ключаем работу с модулем RTC DS3231
         self.rtc = self.config['RTC']
         self.config['NOW'] = mktime(self.rtc.datetime())
-        self.config['HEAT'] = True           #Начальное значение, нагрев включен
         # Включаем поддержку TIME ZONE
         self.tzone = TZONE(self.config['timezone'])     
 
         loop = asyncio.get_event_loop()
-        loop.create_task(self._heartbeat())              #Индикация подключения WiFi
-        loop.create_task(self._collection_temp())        #Сбор информации с температурных датчиков DS18D20
+        loop.create_task(self._heartbeat())              # Индикация подключения WiFi
+        loop.create_task(self._collection_temp())        # Сбор информации с температурных датчиков DS18D20 и Вычисление тарифных зон
         loop.create_task(self._dataupdate())             # Обновление информации и часы
-        #loop.create_task(self._heat_logical())          #Управления отоплением
-        #loop.create_task(self._calc_tariff_zone())      #Вычисление тарифных зон
-        loop.create_task(self._start_web_app())          #Включаем WEB приложение
+        loop.create_task(self._start_web_app())          # Включаем WEB приложение
+
 
     async def _dataupdate(self):
+        #Создаем ПИД регулятор
+        pid = PID(self.config['PID_KP'], self.config['PID_KI'], self.config['PID_KD'], setpoint=self.config['SET'])
+        #Устанавливаем минимальный и максимальный предел работы регулятора
+        pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
+        #Устанавливаем поддерживаемую температуру
+        t_room = self.config['SET']
         while True:
             # RTC Update
             self.config['RTC_TIME'] = self.rtc.datetime()
@@ -97,47 +98,37 @@ class Main(HeatControl):
             if rtc[5] == 30: 
                 self.rtc.settime('dht')
             # Если у нас режим подключения к точке доступа и если есть соединение, подводим часы по NTP
-            if self.config['MODE_WiFi'] == 'ST' and not self.config['no_wifi']:
+            if self.config['MODE'] == 'ST' and not self.config['no_wifi']:
                 # Подводка часов по NTP каждые сутки в 22:00:00
                 if rtc[3] == 22 and rtc[4] == 5 and rtc[5] < 3 and self.config['NTP_UPDATE']:
                         self.config['NTP_UPDATE'] = False
                         self.rtc.settime('ntp')
                         await asyncio.sleep(1)
                         self.config['NTP_UPDATE'] = True
+            #Логика управления отоплением
+            if self.config['WORK'] == 'ON':
+                rtc = self.config['RTC_TIME']
+                now = self.config['NOW']
+                dst = self.config['DAY_ZONE'][0]
+                den = self.config['DAY_ZONE'][1]
+                st = mktime((rtc[0], rtc[1], rtc[2], dst[0], 0, 0, 0, 0))
+                end = mktime((rtc[0], rtc[1], rtc[2], den[0], den[1], den[2], 0, 0))
+                # Если тариф дневной зоны, ограничиваем мощность нагрева на self.config['DAY']%
+                if st < now and now < end:
+                    pid.output_limits = (self.config['DUTY_MIN'], self.config['DAY'])
+                    self.config['SETPOWER'] = self.config['DAY']
+                else: # Если тариф ночной зоны, разрешаем нагрев до self.config['DUTY_MAX']%
+                    pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
+                    self.config['SETPOWER'] = self.config['DUTY_MAX']
+                if t_room != self.config['SET']:
+                    pid.set_setpoint = self.config['SET']
+                    t_room = self.config['SET']
+                # Вычисляем мощность нагрева
+                self.config['POWER'] = round(pid(self.config['TEMP'])*10) # Для ШИМ необходим диапазон от 0 до 1000, умножаем мощность на 10
+            else:
+                self.config['POWER'] = 0
+            self.heat.duty(self.config['POWER'])
             await asyncio.sleep(1)
-    #Логика управления отоплением
-    #async def _heat_logical(self):
-    #    #Создаем ПИД регулятор
-    #    pid = PID(self.config['PID_KP'], self.config['PID_KI'], self.config['PID_KD'], setpoint=self.config['SET_TEMP'])
-    #    #Устанавливаем минимальный и максимальный предел работы регулятора
-    #    pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
-    #    #Устанавливаем поддерживаемую температуру
-    #    t_root = self.config['SET_TEMP']
-    #    while True:
-    #        await asyncio.sleep(3)
-    #        if self.config['HEAT']:
-    #            #Если тариф дневной зоны, ограничиваем мощность нагрева на self.config['DAY_POWER']%
-    #            if self.config['DAY_ZONE'][0] < self.config['RTC'].rtctime()[3:6] and \
-    #            self.config['DAY_ZONE'][1] > self.config['RTC'].rtctime()[3:6]:
-    #                pid.output_limits = (self.config['DUTY_MIN'], self.config['DAY_POWER'])
-    #                self.config['SETPOWER'] = self.config['DAY_POWER']
-    #            else: #Если тариф ночной зоны, разрешаем нагрев до self.config['DUTY_MAX']%
-    #                pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
-    #                self.config['SETPOWER'] = self.config['DUTY_MAX']
-    #            #Если значение поддерживаемой температуры было изменено, применяем изменения
-    #            if t_root != self.config['SET_TEMP']:
-    #                pid.set_setpoint = self.config['SET_TEMP']
-    #                t_root = self.config['SET_TEMP']
-    #            #Вычисляем мощность нагрева
-    #            power = pid(self.config['TEMP'])
-    #            PWM = power*10 #Для ШИМ необходим диапазон от 0 до 1000, умножаем мощность на 10
-    #            self.config['POWER'] = round(PWM)
-    #            self.dprint('PWM in:', PWM, 'POWER out:', self.config['POWER'], 'POWER in %', str(round(self.config['POWER']/10))+'%')
-    #        else:
-    #            self.config['POWER'] = 0
-    #            self.dprint('Heating OFF!!!')
-    #        self.heat.duty(self.config['POWER'])
-    #        await asyncio.sleep(57)
 
 
     #Индикация подключения WiFi
@@ -162,26 +153,19 @@ class Main(HeatControl):
                 await asyncio.sleep_ms(5000)
 
 
-    ##Вычисление тарифной зоны день
-    #sync def _calc_tariff_zone(self):
-    #    while True:
-    #        if self.config['RTC'].rtctime()[4] == 0: #Если минуты обнулились, прошел 1 час делаем проверку тарифной зоны
-    #            delta = self.config['timezone']-self.tzone.adj_tzone(self.config['RTC'].rtctime())
-    #            if delta == 1: #Если Зимняя тарифная зона вычитаем из часов delta
-    #                self.config['DAY_ZONE'] = ((self.config['TARIFF_ZONE'][0][0]-delta,)\
-    #                +self.config['TARIFF_ZONE'][0][1:]),\
-    #                (self.config['TARIFF_ZONE'][1][0]-delta,)+self.config['TARIFF_ZONE'][1][1:]
-    #            else: #Если Летняя тарифная зона, 'DAY_ZONE' = 'TARIFF_ZONE'
-    #                self.config['DAY_ZONE'] = self.config['TARIFF_ZONE']
-    #            await asyncio.sleep(60)
-    #        await asyncio.sleep(1)
-
-
-    #Сбор информации с температурных датчиков DS18D20
+    #Сбор информации с температурных датчиков DS18D20 и Вычисление тарифной зоны день
     async def _collection_temp(self):
         roms = self.ds.scan()
         while True:
             self.ds.convert_temp()
+            if self.config['RTC_TIME'][4] == 0: #Если минуты обнулились, прошел 1 час делаем проверку тарифной зоны
+                delta = self.config['timezone']-self.tzone.adj_tzone(self.config['RTC_TIME'])
+                if delta == 1: #Если Зимняя тарифная зона вычитаем из часов delta
+                    self.config['DAY_ZONE'] = ((self.config['TARIFF_ZONE'][0][0]-delta,)\
+                    +self.config['TARIFF_ZONE'][0][1:]),\
+                    (self.config['TARIFF_ZONE'][1][0]-delta,)+self.config['TARIFF_ZONE'][1][1:]
+                else: #Если Летняя тарифная зона, 'DAY_ZONE' = 'TARIFF_ZONE'
+                    self.config['DAY_ZONE'] = self.config['TARIFF_ZONE']
             await asyncio.sleep(2)
             self.config['TEMP'] = round(self.ds.read_temp(roms[0]) + self.default['DS_K'] , 2)
 
@@ -190,15 +174,24 @@ class Main(HeatControl):
     async def _start_web_app(self):
         while True:
             await asyncio.sleep(5)
-            if not self.config['no_wifi'] or self.config['MODE_WiFi'] == 'AP':
+            if not self.config['no_wifi'] or self.config['MODE'] == 'AP':
                 self.ip = self.config['WIFI'].ifconfig()[0]
                 self.dprint('Run WebAPP...')
                 app.run(debug=self.config['DEBUG'], host =self.ip, port=80)
 
 
-    async def _run_main_loop(self):                         #Бесконечный цикл
+    async def _run_main_loop(self):                                     # Бесконечный цикл
         while True:
-            gc.collect()                                    #Очищаем RAM
+            lt = self.config['RTC_TIME']
+            try:
+                self.dprint('IP:', self.config['IP'])
+                self.dprint('Local Time:', '{:0>2d}-{:0>2d}-{:0>2d} {:0>2d}:{:0>2d}:{:0>2d}'\
+                                      .format(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5]))
+                self.dprint('MemFree:', '{}Kb'.format(str(round(mem_free()/1024, 2))))
+                self.dprint('MemAvailab:', '{}Kb'.format(str(round(mem_alloc()/1024, 2))))
+            except Exception as e:
+                self.dprint('Exception occurred: ', e)
+            collect()                                                   # Очищаем RAM
             await asyncio.sleep(30)
 
 
@@ -212,7 +205,7 @@ class Main(HeatControl):
                 await asyncio.sleep(20)
 
 
-gc.collect()                                                #Очищаем RAM
+collect()                                                #Очищаем RAM
 def_main = Main()
 loop = asyncio.get_event_loop()
 loop.run_until_complete(def_main.main())
