@@ -3,9 +3,9 @@ from json import dump, loads
 from gc import collect
 from os import stat
 import uasyncio as asyncio
-collect()                                #Очищаем RAM
+collect()                                                               #Очищаем RAM
 
-config = {}                                 #Основное хранилище настроек
+config = {}                                                             #Основное хранилище настроек
 
 def str_to_bool(s):
     if s == 'True':
@@ -108,19 +108,6 @@ class HeatControlBase:
             network.phy_mode(1) # network.phy_mode = MODE_11B
             #Подключаемся к WiFi сети
             self.config['WIFI'].connect(self.config['ssid'], self.config['pass'])
-
-
-    #Выводим сообщения об ошибках соединения
-    #def _error_con(self):
-    #    #Соединение не установлено...
-    #    if self.config['WIFI'].status() == network.STAT_CONNECT_FAIL:
-    #        self.dprint('WiFi: Failed due to other problems')
-    #    #Соединение не установлено, причина не найдена точка доступа
-    #    if self.config['WIFI'].status() == network.STAT_NO_AP_FOUND:
-    #        self.dprint('WiFi: Failed because no access point replied')
-    #    #Соединение не установлено, не верный пароль
-    #    if self.config['WIFI'].status() == network.STAT_WRONG_PASSWORD:
-    #        self.dprint('WiFi: Failed due to incorrect password')
 
 
     #Подключение к сети WiFi или поднятие точки доступа

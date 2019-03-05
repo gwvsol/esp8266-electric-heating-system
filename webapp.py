@@ -169,18 +169,18 @@ def index(req, resp):
     yield from resp.awrite('{}{}<br>{}'\
                 .format(div_cl_header, href_adm_panel, div_end))
     yield from resp.awrite(div_cl_info)
-    yield from resp.awrite('<p>{:0>2d}-{:0>2d}-{:0>2d} {:0>2d}:{:0>2d}<br>'.format(t[0], t[1], t[2], t[3], t[4]))
-    yield from resp.awrite('Time zone: {}<br>'.format(config['timezone']))
-    yield from resp.awrite('DST: {}<br>'.format(bool_to_str(config['DST'])))
-    yield from resp.awrite('Set: {:.1f}\'C<br>'.format(config['SET']))
-    yield from resp.awrite('Room: {:.1f}\'C<br>'.format(config['TEMP']))
-    yield from resp.awrite('Work Mode: {}<br>'.format(config['WORK']))
+    yield from resp.awrite('<p>{:0>2d}-{:0>2d}-{:0>2d} {:0>2d}:{:0>2d}</p>'.format(t[0], t[1], t[2], t[3], t[4]))
+    yield from resp.awrite('<p>Time zone: {}</p>'.format(config['timezone']))
+    yield from resp.awrite('<p>DST: {}</p>'.format(bool_to_str(config['DST'])))
+    yield from resp.awrite('<p>Set: {:.1f}\'C</p>'.format(config['SET']))
+    yield from resp.awrite('<p>Room: {:.1f}\'C</p>'.format(config['TEMP']))
+    yield from resp.awrite('<p>Work Mode: {}</p>'.format(config['WORK']))
     if config['WORK'] == 'TAB':
         ton, toff = config['ON'], config['OFF']
-        yield from resp.awrite('On: {:0>2d}:{:0>2d}<br>'.format(ton[3], ton[4]))
-        yield from resp.awrite('Off: {:0>2d}:{:0>2d}<br>'.format(toff[3], toff[4]))
-    yield from resp.awrite('Set Power : {}%<br>'.format(config['SETPOWER']))
-    yield from resp.awrite('Actual Power: {}%</p>'.format(round(config['POWER']/10)))
+        yield from resp.awrite('<p>On: {:0>2d}:{:0>2d}</p>'.format(ton[3], ton[4]))
+        yield from resp.awrite('<p>Off: {:0>2d}:{:0>2d}</p>'.format(toff[3], toff[4]))
+    yield from resp.awrite('<p>Set Power : {}%</p>'.format(config['SETPOWER']))
+    yield from resp.awrite('<p>Actual Power: {}%</p>'.format(round(config['POWER']/10)))
     yield from resp.awrite(div_end)
     yield from resp.awrite(http_footer)
     collect()                                                           #Очищаем RAM

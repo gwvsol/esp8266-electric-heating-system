@@ -80,15 +80,10 @@ class Main(HeatControl):
         loop.create_task(self._collection_temp())        # Сбор информации с температурных датчиков DS18D20 и Вычисление тарифных зон
         loop.create_task(self._dataupdate())             # Обновление информации и часы
         loop.create_task(self._start_web_app())          # Включаем WEB приложение
+        collect()                                                       #Очищаем RAM
 
 
     async def _dataupdate(self):
-        #Создаем ПИД регулятор
-        pid = PID(self.config['PID_KP'], self.config['PID_KI'], self.config['PID_KD'], setpoint=self.config['SET'])
-        #Устанавливаем минимальный и максимальный предел работы регулятора
-        pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
-        #Устанавливаем поддерживаемую температуру
-        t_room = self.config['SET']
         while True:
             # RTC Update
             self.config['RTC_TIME'] = self.rtc.datetime()
@@ -105,29 +100,7 @@ class Main(HeatControl):
                         self.rtc.settime('ntp')
                         await asyncio.sleep(1)
                         self.config['NTP_UPDATE'] = True
-            #Логика управления отоплением
-            if self.config['WORK'] == 'ON':
-                rtc = self.config['RTC_TIME']
-                now = self.config['NOW']
-                dst = self.config['DAY_ZONE'][0]
-                den = self.config['DAY_ZONE'][1]
-                st = mktime((rtc[0], rtc[1], rtc[2], dst[0], 0, 0, 0, 0))
-                end = mktime((rtc[0], rtc[1], rtc[2], den[0], den[1], den[2], 0, 0))
-                # Если тариф дневной зоны, ограничиваем мощность нагрева на self.config['DAY']%
-                if st < now and now < end:
-                    pid.output_limits = (self.config['DUTY_MIN'], self.config['DAY'])
-                    self.config['SETPOWER'] = self.config['DAY']
-                else: # Если тариф ночной зоны, разрешаем нагрев до self.config['DUTY_MAX']%
-                    pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
-                    self.config['SETPOWER'] = self.config['DUTY_MAX']
-                if t_room != self.config['SET']:
-                    pid.set_setpoint = self.config['SET']
-                    t_room = self.config['SET']
-                # Вычисляем мощность нагрева
-                self.config['POWER'] = round(pid(self.config['TEMP'])*10) # Для ШИМ необходим диапазон от 0 до 1000, умножаем мощность на 10
-            else:
-                self.config['POWER'] = 0
-            self.heat.duty(self.config['POWER'])
+            collect()                                                   #Очищаем RAM
             await asyncio.sleep(1)
 
 
@@ -153,12 +126,20 @@ class Main(HeatControl):
                 await asyncio.sleep_ms(5000)
 
 
-    #Сбор информации с температурных датчиков DS18D20 и Вычисление тарифной зоны день
+    # Сбор данных с DS18D20, Вычисление тарифной зоны день, Управление отоплением и логикой работы отопления
     async def _collection_temp(self):
         roms = self.ds.scan()
+        #Создаем ПИД регулятор
+        pid = PID(self.config['PID_KP'], self.config['PID_KI'], self.config['PID_KD'], setpoint=self.config['SET'])
+        #Устанавливаем минимальный и максимальный предел работы регулятора
+        pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
+        #Устанавливаем поддерживаемую температуру
+        t_room = self.config['SET']
+        heat = False
         while True:
-            self.ds.convert_temp()
-            if self.config['RTC_TIME'][4] == 0: #Если минуты обнулились, прошел 1 час делаем проверку тарифной зоны
+            rtc = self.config['RTC_TIME']
+    # Вычисление тарифной зоны день, если минуты обнулились, прошел 1 час делаем проверку тарифной зоны
+            if self.config['RTC_TIME'][4] == 0 and self.config['RTC_TIME'][5] < 10:
                 delta = self.config['timezone']-self.tzone.adj_tzone(self.config['RTC_TIME'])
                 if delta == 1: #Если Зимняя тарифная зона вычитаем из часов delta
                     self.config['DAY_ZONE'] = ((self.config['TARIFF_ZONE'][0][0]-delta,)\
@@ -166,8 +147,48 @@ class Main(HeatControl):
                     (self.config['TARIFF_ZONE'][1][0]-delta,)+self.config['TARIFF_ZONE'][1][1:]
                 else: #Если Летняя тарифная зона, 'DAY_ZONE' = 'TARIFF_ZONE'
                     self.config['DAY_ZONE'] = self.config['TARIFF_ZONE']
+    # Считываем показания с датчика температуры
+            self.ds.convert_temp()
             await asyncio.sleep(2)
             self.config['TEMP'] = round(self.ds.read_temp(roms[0]) + self.default['DS_K'] , 2)
+    #Логика управления отоплением
+            st = self.config['DAY_ZONE'][0]
+            end = self.config['DAY_ZONE'][1]
+            st = mktime((rtc[0], rtc[1], rtc[2], st[0], 0, 0, 0, 0))
+            end = mktime((rtc[0], rtc[1], rtc[2], end[0], end[1], end[2], 0, 0))
+            # Если тариф дневной зоны, ограничиваем мощность нагрева на self.config['DAY']%
+            if st < self.config['NOW'] and self.config['NOW'] < end:
+                pid.output_limits = (self.config['DUTY_MIN'], self.config['DAY'])
+                self.config['SETPOWER'] = self.config['DAY']
+            else: # Если тариф ночной зоны, разрешаем нагрев до self.config['DUTY_MAX']%
+                pid.output_limits = (self.config['DUTY_MIN'], self.config['DUTY_MAX'])
+                self.config['SETPOWER'] = self.config['DUTY_MAX']
+            if t_room != self.config['SET']:
+                pid.set_setpoint = self.config['SET']
+                t_room = self.config['SET']
+    # Вычисляем мощность нагрева
+            if heat:
+                self.config['POWER'] = round(pid(self.config['TEMP'])*10) # Для ШИМ необходим диапазон от 0 до 1000, умножаем мощность на 10
+            else:
+                self.config['POWER'] = 0
+            self.heat.duty(self.config['POWER'])
+    # Обрабатываем режимы работы контроллера
+            if self.config['WORK'] == 'ON': # Режим поддержания температуры
+                heat = True
+            elif self.config['WORK'] == 'TAB': # Режим работы по рассписанию
+                on = self.config['ON']
+                off = self.config['OFF']
+                d = rtc[2] + 1 if int(on[3]) > int(off[3]) else rtc[2]
+                on = mktime((rtc[0], rtc[1], rtc[2], on[3], on[4], 0, 0, 0))
+                off = mktime((rtc[0], rtc[1], d, off[3], off[4], 0, 0, 0))
+                if self.config['NOW'] > on and self.config['NOW'] < off:
+                    heat = True
+                else: heat = False
+            elif self.config['WORK'] == 'OFF': # Обогрев выключен
+                heat = False
+            else: heat = False
+            collect()                                                   #Очищаем RAM
+            await asyncio.sleep(10)
 
 
     #Запуск WEB приложения
@@ -205,7 +226,7 @@ class Main(HeatControl):
                 await asyncio.sleep(20)
 
 
-collect()                                                #Очищаем RAM
+collect()                                                               #Очищаем RAM
 def_main = Main()
 loop = asyncio.get_event_loop()
 loop.run_until_complete(def_main.main())
