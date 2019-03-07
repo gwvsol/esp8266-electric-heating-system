@@ -90,7 +90,7 @@ esptool.py --port /dev/ttyUSB0 --baud 460800 write_flash --flash_size=detect -fm
 
 #### Фото платы контроллера
 
-![kontroll](https://user-images.githubusercontent.com/13176091/53957428-03fc4c00-40e7-11e9-93f1-d8ce7f8fea37.jpeg)
+![kontroll](https://user-images.githubusercontent.com/13176091/53958863-c0a3dc80-40ea-11e9-83a1-418c6be681c4.png)
 
 ***
 
