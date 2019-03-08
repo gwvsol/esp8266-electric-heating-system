@@ -1,4 +1,4 @@
-import network, os
+from network import phy_mode, STAT_CONNECTING, STAT_GOT_IP
 from json import dump, loads
 from gc import collect
 from os import stat
@@ -105,7 +105,7 @@ class HeatControlBase:
             self.config['WIFI'].ifconfig(self.config['WIFI_AP'])
         elif self.config['MODE'] == 'ST':
             self.config['WIFI'].active(True)
-            network.phy_mode(1) # network.phy_mode = MODE_11B
+            phy_mode(1) # phy_mode = MODE_11B
             #Подключаемся к WiFi сети
             self.config['WIFI'].connect(self.config['ssid'], self.config['pass'])
 
@@ -123,14 +123,14 @@ class HeatControlBase:
         elif self.config['MODE'] == 'ST': #Если подключаемся к сети
             self.dprint('Connecting to WiFi...')
             self._con() #Настройка для режима Точка доступа и подключения к сети WiFi
-            if self.config['WIFI'].status() == network.STAT_CONNECTING:
+            if self.config['WIFI'].status() == STAT_CONNECTING:
                 self.dprint('WiFi: Waiting for connection to...')
             # Задержка на соединение, если не успешно, будет выдана одна из ошибок
             # Выполнение условия проверяем каждую секунду, задержка для получения IP адреса от DHCP
-            while self.config['WIFI'].status() == network.STAT_CONNECTING:
+            while self.config['WIFI'].status() == STAT_CONNECTING:
                 await asyncio.sleep(1)
             #Соединение успешно установлено
-            if self.config['WIFI'].status() == network.STAT_GOT_IP:
+            if self.config['WIFI'].status() == STAT_GOT_IP:
                 self.dprint('WiFi: Connection successfully!')
                 self.config['IP'] = self.config['WIFI'].ifconfig()[0]
                 self.dprint('WiFi:', self.config['IP'])
@@ -153,10 +153,10 @@ class HeatControlBase:
         self._con() #Настройка для режима Точка доступа и подключения к сети WiFi
         # Задержка на соединение, если не успешно, будет выдана одна из ошибок
         # Выполнение условия проверяем каждые 20 милисекунд, задержка для получения IP адреса от DHCP
-        while self.config['WIFI'].status() == network.STAT_CONNECTING:
+        while self.config['WIFI'].status() == STAT_CONNECTING:
             await asyncio.sleep_ms(20)
         #Если соединение установлено
-        if self.config['WIFI'].status() == network.STAT_GOT_IP:
+        if self.config['WIFI'].status() == STAT_GOT_IP:
             #Сохраняем новый IP адрес
             self.config['IP'] = self.config['WIFI'].ifconfig()[0]
             self.config['no_wifi'] = False #Сообщаем, что соединение успешно установлено
@@ -179,7 +179,7 @@ class HeatControl(HeatControlBase):
     async def _check_wf(self):
         while True:
             if not self.config['no_wifi']:                      #Если оединение установлено
-                if self.config['WIFI'].status() == network.STAT_GOT_IP: #Проверяем наличие соединения
+                if self.config['WIFI'].status() == STAT_GOT_IP: #Проверяем наличие соединения
                     await asyncio.sleep(1)
                 else:                                                   #Если соединение отсутсвует или оборвано
                     await asyncio.sleep(1)

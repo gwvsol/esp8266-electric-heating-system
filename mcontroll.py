@@ -1,4 +1,6 @@
-import network, onewire, ds18b20
+from network import WLAN, AP_IF, STA_IF
+from onewire import OneWire
+from ds18b20 import DS18X20
 from machine import I2C, Pin, PWM
 from time import mktime
 import uasyncio as asyncio
@@ -14,10 +16,10 @@ class Main(HeatControl):
     def __init__(self):
         super().__init__()
         self.wifi_led = Pin(2, Pin.OUT, value = 1)                # Pin2, светодиод на плате контроллера
-        self.heat = PWM(Pin(5), freq=1000, duty=0)                # Pin12, управление нагревом пола
-        self.default_on = Pin(0, Pin.IN)                          # Pin14, кнопка для сброса настроек в дефолт
-        self.i2c = I2C(scl=Pin(14), sda=Pin(12), freq=400000)     # Настройка шины i2c
-        self.ds = ds18b20.DS18X20(onewire.OneWire(Pin(4)))        # Set Temperature sensors
+        self.heat = PWM(Pin(13), freq=1000, duty=0)                # Pin12, управление нагревом пола
+        self.default_on = Pin(14, Pin.IN)                          # Pin14, кнопка для сброса настроек в дефолт
+        self.i2c = I2C(scl=Pin(5), sda=Pin(4), freq=400000)     # Настройка шины i2c
+        self.ds = DS18X20(OneWire(Pin(12)))        # Set Temperature sensors
         # Дефолтные настройки, если файла config.txt не будет обнаружено в системе
         self.default = {}
         self.default['MODE'] = 'AP'         # Включаем точку доступа
@@ -34,7 +36,7 @@ class Main(HeatControl):
         # Дефолтный хещ логин, пароль для web admin (root:root)
         self.default_web = str(b'0242c0436daa4c241ca8a793764b7dfb50c223121bb844cf49be670a3af4dd18')
         # Основные настройки системы
-        self.config['DEBUG'] = True              # Режим отладки, делаем программу разговорчивой
+        self.config['DEBUG'] = False             # Режим отладки, делаем программу разговорчивой
         self.config['RTC_DS3231'] = 0x68         # Адрес DS3231 RTC
         self.config['WIFI_AP'] = ('192.168.4.1', '255.255.255.0', '192.168.4.1', '208.67.222.222')
         self.config['TARIFF_ZONE'] = ((7, 0, 0), (22, 59, 59)) # Тарифнаф зона день с 7 до 22:59
@@ -62,10 +64,10 @@ class Main(HeatControl):
         update_config()
         # Начальные настройки сети AP или ST
         if self.config['MODE'] == 'AP':
-            self._ap_if = network.WLAN(network.AP_IF)
+            self._ap_if = WLAN(AP_IF)
             self.config['WIFI'] = self._ap_if
         elif self.config['MODE'] == 'ST':
-            self._sta_if = network.WLAN(network.STA_IF)
+            self._sta_if = WLAN(STA_IF)
             self.config['WIFI'] = self._sta_if
         # Настройка для работы с RTC
         self.config['RTC']= DS3231(self.i2c, \
@@ -203,15 +205,15 @@ class Main(HeatControl):
 
     async def _run_main_loop(self):                                     # Бесконечный цикл
         while True:
-            lt = self.config['RTC_TIME']
-            try:
-                self.dprint('IP:', self.config['IP'])
-                self.dprint('Local Time:', '{:0>2d}-{:0>2d}-{:0>2d} {:0>2d}:{:0>2d}:{:0>2d}'\
-                                      .format(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5]))
-                self.dprint('MemFree:', '{}Kb'.format(str(round(mem_free()/1024, 2))))
-                self.dprint('MemAvailab:', '{}Kb'.format(str(round(mem_alloc()/1024, 2))))
-            except Exception as e:
-                self.dprint('Exception occurred: ', e)
+            #lt = self.config['RTC_TIME']
+            #try:
+            #    self.dprint('IP:', self.config['IP'])
+            #    self.dprint('Local Time:', '{:0>2d}-{:0>2d}-{:0>2d} {:0>2d}:{:0>2d}:{:0>2d}'\
+            #                          .format(lt[0], lt[1], lt[2], lt[3], lt[4], lt[5]))
+            #    self.dprint('MemFree:', '{}Kb'.format(str(round(mem_free()/1024, 2))))
+            #    self.dprint('MemAvailab:', '{}Kb'.format(str(round(mem_alloc()/1024, 2))))
+            #except Exception as e:
+            #    self.dprint('Exception occurred: ', e)
             collect()                                                   # Очищаем RAM
             await asyncio.sleep(30)
 

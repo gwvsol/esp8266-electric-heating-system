@@ -1,10 +1,11 @@
-import picoweb, ubinascii
+from picoweb import WebApp, start_response
+from ubinascii import a2b_base64
 from gc import collect
 from hcontroll import config, bool_to_str, str_to_bool, read_write_root, read_write_config, update_config
 from ubinascii import hexlify
 from uhashlib import sha256
 
-app = picoweb.WebApp(__name__)
+app = WebApp(__name__)
 
 http_head = """<!DOCTYPE html>
         <html>
@@ -164,7 +165,7 @@ def setting_update(timeon=None, timeoff=None, temph=None, mod=None, pwr=None):
 @app.route("/")
 def index(req, resp):
     t = config['RTC_TIME']
-    yield from picoweb.start_response(resp)
+    yield from start_response(resp)
     yield from resp.awrite(http_head)
     yield from resp.awrite('{}{}<br>{}'\
                 .format(div_cl_header, href_adm_panel, div_end))
@@ -190,7 +191,7 @@ def index(req, resp):
 def admin(req, resp):
     if req.method == "POST":
         if b"Authorization" in req.headers:
-            yield from picoweb.start_response(resp)
+            yield from start_response(resp)
             yield from resp.awrite(http_head)
             yield from resp.awrite('{}{}<br>{}'.format(div_cl_header, href_adm_panel, div_end))
             collect()                                                   #Очищаем RAM
@@ -215,10 +216,10 @@ def admin(req, resp):
                 '\r\n')
             return
         auth = req.headers[b"Authorization"].split(None, 1)[1]
-        auth = ubinascii.a2b_base64(auth).decode()
+        auth = a2b_base64(auth).decode()
         username, passwd = auth.split(":", 1)
         if setpasswd(username.lower(), passwd) == read_write_root():
-            yield from picoweb.start_response(resp)
+            yield from start_response(resp)
             yield from resp.awrite(http_head)
             yield from resp.awrite('{}{}<br>{}'.format(div_cl_header, href_adm_panel, div_end))
             yield from resp.awrite(div_cl_admin)
@@ -229,7 +230,7 @@ def admin(req, resp):
             yield from resp.awrite('{}<br>'.format(passw_form))
             yield from resp.awrite(div_end)
         else:
-            yield from picoweb.start_response(resp)
+            yield from start_response(resp)
             yield from resp.awrite(http_head)
             yield from resp.awrite('{}{}{}'.format(div_cl_header, span_err_pasw, div_end))
     yield from resp.awrite(http_footer)
