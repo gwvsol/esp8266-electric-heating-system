@@ -15,7 +15,7 @@
 ***
 #### Используемые библиотеки
 * [OneWire](https://github.com/micropython/micropython/blob/master/drivers/onewire/onewire.py)
-* [DS18B20](https://github.com/micropython/micropython/blob/master/drivers/onewire/ds18x20.py)
+* [DS18B20](https://github.com/gwvsol/ESP8266-1wire-DS18B20)
 * [DS3231](https://github.com/gwvsol/ESP8266-i2c-DS3231)
 * [PID](https://github.com/gwvsol/ESP8266-PID-controller)
 * [timezone](https://github.com/gwvsol/ESP8266-TimeZone)
